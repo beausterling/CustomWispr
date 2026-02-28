@@ -2,7 +2,9 @@ import Foundation
 
 class WhisperService {
     func transcribe(audioFileURL: URL) async throws -> String {
-        let url = URL(string: "\(Config.openAIBaseURL)/audio/transcriptions")!
+        guard let url = URL(string: "\(Config.openAIBaseURL)/audio/transcriptions") else {
+            throw WhisperError.invalidURL
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -38,7 +40,7 @@ class WhisperService {
         }
 
         guard httpResponse.statusCode == 200 else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            let errorBody = String(data: data, encoding: .utf8).map { String($0.prefix(200)) } ?? "Unknown error"
             throw WhisperError.apiError(statusCode: httpResponse.statusCode, message: errorBody)
         }
 
@@ -51,11 +53,14 @@ class WhisperService {
     }
 
     enum WhisperError: LocalizedError {
+        case invalidURL
         case invalidResponse
         case apiError(statusCode: Int, message: String)
 
         var errorDescription: String? {
             switch self {
+            case .invalidURL:
+                return "Invalid Whisper API URL"
             case .invalidResponse:
                 return "Invalid response from Whisper API"
             case .apiError(let code, let message):

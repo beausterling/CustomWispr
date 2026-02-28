@@ -8,7 +8,7 @@ class AudioRecorder {
 
     func startRecording() throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("wisprflow_\(UUID().uuidString).m4a")
+        let fileURL = tempDir.appendingPathComponent("custom-wispr_\(UUID().uuidString).m4a")
         self.tempFileURL = fileURL
 
         let engine = AVAudioEngine()
@@ -56,6 +56,19 @@ class AudioRecorder {
         if let url = tempFileURL {
             try? FileManager.default.removeItem(at: url)
             tempFileURL = nil
+        }
+    }
+
+    /// Remove stale temp files from previous sessions
+    static func cleanupStaleFiles() {
+        let tempDir = FileManager.default.temporaryDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ) else { return }
+
+        for file in files where file.lastPathComponent.hasPrefix("custom-wispr_") && file.pathExtension == "m4a" {
+            try? FileManager.default.removeItem(at: file)
         }
     }
 

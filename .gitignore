@@ -1,8 +1,15 @@
 .env
 .env.local
+.env.*
 *.m4a
 *.wav
+CustomWispr.app/
 WisprFlow.app/
 .DS_Store
 build/
 *.o
+*.key
+*.pem
+*.p12
+xcuserdata/
+.swiftpm/

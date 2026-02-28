@@ -38,7 +38,7 @@ class TextInjector {
         // Key code 9 = 'v'
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(9), keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(9), keyDown: false) else {
-            NSLog("WisprFlow: Failed to create CGEvent for paste")
+            NSLog("CustomWispr: Failed to create CGEvent for paste")
             return
         }
 

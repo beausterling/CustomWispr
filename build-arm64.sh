@@ -14,10 +14,10 @@ echo "==> Creating app bundle structure..."
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-echo "==> Compiling Swift sources..."
+echo "==> Compiling Swift sources (Apple Silicon / arm64)..."
 swiftc \
     -o "${APP_BUNDLE}/Contents/MacOS/${EXECUTABLE}" \
-    -target x86_64-apple-macos13.0 \
+    -target arm64-apple-macos13.0 \
     -sdk "$(xcrun --show-sdk-path)" \
     -framework Cocoa \
     -framework AVFoundation \
@@ -43,7 +43,7 @@ codesign --force --sign - \
     "${APP_BUNDLE}"
 
 echo ""
-echo "=== Build complete: ${APP_BUNDLE} ==="
+echo "=== Build complete (Apple Silicon): ${APP_BUNDLE} ==="
 echo ""
 echo "To run: open ${APP_BUNDLE}"
 echo ""

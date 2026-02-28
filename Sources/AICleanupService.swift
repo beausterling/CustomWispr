@@ -21,13 +21,15 @@ class AICleanupService {
         do {
             return try await callGPT(rawText: rawText)
         } catch {
-            NSLog("WisprFlow: GPT cleanup failed: \(error.localizedDescription). Using raw text.")
+            NSLog("CustomWispr: GPT cleanup failed: \(error.localizedDescription). Using raw text.")
             return rawText
         }
     }
 
     private func callGPT(rawText: String) async throws -> String {
-        let url = URL(string: "\(Config.openAIBaseURL)/chat/completions")!
+        guard let url = URL(string: "\(Config.openAIBaseURL)/chat/completions") else {
+            throw CleanupError.invalidURL
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -49,7 +51,7 @@ class AICleanupService {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            let errorBody = String(data: data, encoding: .utf8).map { String($0.prefix(200)) } ?? "Unknown error"
             throw CleanupError.apiError(errorBody)
         }
 
@@ -64,11 +66,13 @@ class AICleanupService {
     }
 
     enum CleanupError: LocalizedError {
+        case invalidURL
         case apiError(String)
         case parseError
 
         var errorDescription: String? {
             switch self {
+            case .invalidURL: return "Invalid API URL"
             case .apiError(let msg): return "GPT API error: \(msg)"
             case .parseError: return "Failed to parse GPT response"
             }

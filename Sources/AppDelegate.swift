@@ -3,7 +3,7 @@ import AVFoundation
 
 func log(_ message: String) {
     let timestamp = ISO8601DateFormatter().string(from: Date())
-    fputs("[\(timestamp)] WisprFlow: \(message)\n", stderr)
+    fputs("[\(timestamp)] CustomWispr: \(message)\n", stderr)
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("App launched")
+        AudioRecorder.cleanupStaleFiles()
         setupMenuBar()
         requestPermissions()
         startKeyMonitor()
@@ -35,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "WisprFlow", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "CustomWispr", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -136,7 +137,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 // Step 1: Transcribe
                 let rawText = try await whisper.transcribe(audioFileURL: audioURL)
+                #if DEBUG
                 log("Transcribed: \(rawText.prefix(100))...")
+                #endif
 
                 guard !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     log("Empty transcription, skipping")
@@ -145,7 +148,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 // Step 2: Clean up with AI
                 let cleanedText = await cleanup.cleanup(rawText: rawText)
+                #if DEBUG
                 log("Cleaned: \(cleanedText.prefix(100))...")
+                #endif
 
                 // Step 3: Inject into active text field
                 DispatchQueue.main.async { [weak self] in
