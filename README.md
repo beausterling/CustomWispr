@@ -10,7 +10,8 @@ Hold the **fn** key to record your speech, release to transcribe it with OpenAI'
 - **Floating overlay UI** — shows recording/processing status as a compact overlay
 - **AI-powered cleanup** — removes filler words (uh, um) and fixes grammar while preserving your natural voice
 - **Clipboard-safe paste** — saves and restores your clipboard contents after injecting text
-- **Menu bar controls** — quit from the menu bar icon
+- **Custom instructions** — add your own rules for the AI cleanup via Settings (e.g. keyword replacements, formatting preferences)
+- **Menu bar controls** — settings and quit from the menu bar icon
 - **Lightweight** — pure Swift, no Electron, no dependencies beyond macOS system frameworks
 
 ## Requirements
@@ -74,6 +75,24 @@ If you miss the prompts, go to **System Settings > Privacy & Security** and enab
 3. **Release fn** — recording stops, audio is sent to Whisper for transcription, then cleaned up by GPT
 4. The cleaned text is pasted into whatever text field is currently focused
 
+## AI Model
+
+CustomWispr uses **OpenAI `gpt-4o-mini`** for text cleanup and **`whisper-1`** for speech-to-text transcription. These are configured in `Sources/Config.swift`.
+
+### Changing the model
+
+If you want to switch to a different model (e.g. `gpt-4o`, `gpt-4-turbo`), copy the section below and give it to your coding assistant:
+
+> **Instructions for bot:** In the file `Sources/Config.swift`, change the value of `gptModel` on line 5 to the desired model name. For example, to use `gpt-4o`, change:
+> ```swift
+> static let gptModel = "gpt-4o-mini"
+> ```
+> to:
+> ```swift
+> static let gptModel = "gpt-4o"
+> ```
+> Then rebuild the app by running `./build-arm64.sh` (Apple Silicon) or `./build.sh` (Intel).
+
 ## Architecture
 
 | File | Purpose |
@@ -85,6 +104,8 @@ If you miss the prompts, go to **System Settings > Privacy & Security** and enab
 | `AudioRecorder.swift` | Records microphone input to a temporary audio file using AVAudioEngine |
 | `WhisperService.swift` | Sends audio to the OpenAI Whisper API for transcription |
 | `AICleanupService.swift` | Sends raw transcription to GPT for light cleanup (filler removal, grammar fixes) |
+| `SettingsManager.swift` | Loads and saves custom instructions to `~/.custom-wispr-settings.json` |
+| `SettingsWindow.swift` | Native macOS settings window for editing custom instructions |
 | `TextInjector.swift` | Pastes text into the active field via clipboard + Cmd+V, then restores the original clipboard |
 | `OverlayWindow.swift` | Floating status overlay that shows recording/processing state |
 
@@ -105,10 +126,22 @@ If you miss the prompts, go to **System Settings > Privacy & Security** and enab
 **"Microphone access denied" error**
 - Go to **System Settings > Privacy & Security > Microphone** and enable CustomWispr
 
+**macOS says the app is "damaged" or "can't be opened"**
+- This happens because the app is not signed with an Apple Developer certificate. It's safe to run — you built it yourself from source.
+- Run this command to clear the Gatekeeper quarantine flag:
+  ```bash
+  xattr -cr CustomWispr.app
+  ```
+- Then open the app again. If macOS still blocks it, go to **System Settings > Privacy & Security**, scroll down, and click **"Open Anyway"** next to the CustomWispr message.
+
 **Build fails**
 - Ensure Xcode Command Line Tools are installed: `xcode-select --install`
 - Make sure you're using the correct build script for your Mac architecture
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report bugs, suggest features, or submit pull requests.
+
 ## License
 
-MIT
+[MIT](LICENSE)

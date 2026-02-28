@@ -1,7 +1,7 @@
 import Foundation
 
 class AICleanupService {
-    private let systemPrompt = """
+    private let baseSystemPrompt = """
     You are a light-touch text cleanup assistant for speech-to-text transcriptions.
 
     Rules:
@@ -17,11 +17,19 @@ class AICleanupService {
     - Return ONLY the cleaned text, nothing else
     """
 
+    private var systemPrompt: String {
+        let custom = SettingsManager.shared.customInstructions
+        if custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return baseSystemPrompt
+        }
+        return baseSystemPrompt + "\n\nAdditional user instructions:\n" + custom
+    }
+
     func cleanup(rawText: String) async -> String {
         do {
             return try await callGPT(rawText: rawText)
         } catch {
-            NSLog("CustomWispr: GPT cleanup failed: \(error.localizedDescription). Using raw text.")
+            log("GPT cleanup failed: \(error.localizedDescription). Using raw text.")
             return rawText
         }
     }
@@ -33,6 +41,7 @@ class AICleanupService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30
         request.setValue("Bearer \(Config.apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

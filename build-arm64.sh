@@ -31,6 +31,8 @@ swiftc \
     "${SOURCES_DIR}/AICleanupService.swift" \
     "${SOURCES_DIR}/TextInjector.swift" \
     "${SOURCES_DIR}/KeyMonitor.swift" \
+    "${SOURCES_DIR}/SettingsManager.swift" \
+    "${SOURCES_DIR}/SettingsWindow.swift" \
     "${SOURCES_DIR}/AppDelegate.swift" \
     "${SOURCES_DIR}/main.swift"
 
@@ -51,4 +53,6 @@ echo "First-time setup:"
 echo "  1. System Settings > Keyboard > Press fn key to > Do Nothing"
 echo "  2. Grant Accessibility permission when prompted"
 echo "  3. Grant Microphone permission when prompted"
-echo "  4. Create API key: echo \"OPENAI_API_KEY=your-key-here\" > ~/.custom-wispr.env"
+echo "  4. Create API key:"
+echo "       echo \"OPENAI_API_KEY=your-key-here\" > ~/.custom-wispr.env"
+echo "       chmod 600 ~/.custom-wispr.env"

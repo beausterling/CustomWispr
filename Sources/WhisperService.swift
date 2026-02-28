@@ -8,6 +8,7 @@ class WhisperService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 60
         request.setValue("Bearer \(Config.apiKey)", forHTTPHeaderField: "Authorization")
 
         let boundary = UUID().uuidString

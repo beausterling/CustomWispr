@@ -15,8 +15,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let injector = TextInjector()
     private let keyMonitor = KeyMonitor()
 
+    private let settingsWindow = SettingsWindow()
+
     private var isRecording = false
     private var isProcessing = false
+    private var maxRecordingTimer: Timer?
+    private let maxRecordingDuration: TimeInterval = 300 // 5 minutes
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("App launched")
@@ -38,9 +42,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "CustomWispr", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
         log("Menu bar setup complete")
+    }
+
+    @objc private func openSettings() {
+        settingsWindow.show()
     }
 
     @objc private func quit() {
@@ -104,6 +114,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try recorder.startRecording()
             overlay.show(status: "Listening...")
             log("Recording started")
+
+            maxRecordingTimer = Timer.scheduledTimer(withTimeInterval: maxRecordingDuration, repeats: false) { [weak self] _ in
+                log("Max recording duration reached (5 min), auto-stopping")
+                self?.handleFnUp()
+            }
         } catch {
             log("ERROR: Failed to start recording: \(error.localizedDescription)")
             isRecording = false
@@ -114,6 +129,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard isRecording else { return }
         isRecording = false
         isProcessing = true
+        maxRecordingTimer?.invalidate()
+        maxRecordingTimer = nil
 
         guard let audioURL = recorder.stopRecording() else {
             log("ERROR: No audio file after stopping recording")
