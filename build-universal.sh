@@ -67,6 +67,7 @@ lipo -create \
 # Step 4: Copy resources and sign
 echo "==> Copying resources..."
 cp "${RESOURCES_DIR}/Info.plist" "${APP_BUNDLE}/Contents/"
+cp "${RESOURCES_DIR}/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/"
 
 echo "==> Code signing..."
 codesign --force --sign - \
@@ -82,6 +83,10 @@ echo "==> Creating DMG..."
 mkdir -p "${DMG_TEMP}"
 cp -R "${APP_BUNDLE}" "${DMG_TEMP}/"
 ln -s /Applications "${DMG_TEMP}/Applications"
+
+# Set DMG volume icon
+cp "${RESOURCES_DIR}/AppIcon.icns" "${DMG_TEMP}/.VolumeIcon.icns"
+SetFile -a C "${DMG_TEMP}" 2>/dev/null || true
 
 hdiutil create \
     -volname "${APP_NAME}" \
