@@ -1,0 +1,8 @@
+.env
+.env.local
+*.m4a
+*.wav
+WisprFlow.app/
+.DS_Store
+build/
+*.o
