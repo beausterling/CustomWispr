@@ -10,7 +10,7 @@ Hold the **fn** key to record your speech, release to transcribe it with OpenAI'
 - **Floating overlay UI** — shows recording/processing status as a compact overlay
 - **AI-powered cleanup** — removes filler words (uh, um) and fixes grammar while preserving your natural voice
 - **Clipboard-safe paste** — saves and restores your clipboard contents after injecting text
-- **Custom instructions** — add your own rules for the AI cleanup via Settings (e.g. keyword replacements, formatting preferences)
+- **Find & Replace** — fix words that are consistently mistranscribed (e.g. Whisper hears "custom whisper" → you want "CustomWispr")
 - **Menu bar controls** — settings and quit from the menu bar icon
 - **Lightweight** — pure Swift, no Electron, no dependencies beyond macOS system frameworks
 
@@ -75,6 +75,21 @@ If you miss the prompts, go to **System Settings > Privacy & Security** and enab
 3. **Release fn** — recording stops, audio is sent to Whisper for transcription, then cleaned up by GPT
 4. The cleaned text is pasted into whatever text field is currently focused
 
+### Find & Replace
+
+Open **Settings** from the menu bar icon to add find-and-replace rules. These fix words that Whisper consistently gets wrong — for example, proper nouns, brand names, or technical jargon.
+
+Each rule has two columns:
+
+| Find | Replace With |
+|---|---|
+| custom whisper | CustomWispr |
+| react native | React Native |
+
+Replacements are case-insensitive and run **after** GPT cleanup, so they're deterministic — if the word appears in the output, it gets replaced every time. Click **+** to add a row, **−** to remove one, and **Save** to apply.
+
+Rules are stored in `~/.custom-wispr-settings.json` (permissions `0600`).
+
 ## AI Model
 
 CustomWispr uses **OpenAI `gpt-4o-mini`** for text cleanup and **`whisper-1`** for speech-to-text transcription. These are configured in `Sources/Config.swift`.
@@ -103,9 +118,9 @@ If you want to switch to a different model (e.g. `gpt-4o`, `gpt-4-turbo`), copy 
 | `KeyMonitor.swift` | Global fn key listener using a CGEvent tap |
 | `AudioRecorder.swift` | Records microphone input to a temporary audio file using AVAudioEngine |
 | `WhisperService.swift` | Sends audio to the OpenAI Whisper API for transcription |
-| `AICleanupService.swift` | Sends raw transcription to GPT for light cleanup (filler removal, grammar fixes) |
-| `SettingsManager.swift` | Loads and saves custom instructions to `~/.custom-wispr-settings.json` |
-| `SettingsWindow.swift` | Native macOS settings window for editing custom instructions |
+| `AICleanupService.swift` | Sends raw transcription to GPT for light cleanup, then applies find-and-replace rules |
+| `SettingsManager.swift` | Loads and saves find-and-replace rules to `~/.custom-wispr-settings.json` |
+| `SettingsWindow.swift` | Native macOS settings window with a find-and-replace table |
 | `TextInjector.swift` | Pastes text into the active field via clipboard + Cmd+V, then restores the original clipboard |
 | `OverlayWindow.swift` | Floating status overlay that shows recording/processing state |
 

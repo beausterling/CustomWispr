@@ -1,7 +1,7 @@
 import Foundation
 
 class AICleanupService {
-    private let baseSystemPrompt = """
+    private let systemPrompt = """
     You are a light-touch text cleanup assistant for speech-to-text transcriptions.
 
     Rules:
@@ -17,21 +17,15 @@ class AICleanupService {
     - Return ONLY the cleaned text, nothing else
     """
 
-    private var systemPrompt: String {
-        let custom = SettingsManager.shared.customInstructions
-        if custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return baseSystemPrompt
-        }
-        return baseSystemPrompt + "\n\nAdditional user instructions:\n" + custom
-    }
-
     func cleanup(rawText: String) async -> String {
+        let cleaned: String
         do {
-            return try await callGPT(rawText: rawText)
+            cleaned = try await callGPT(rawText: rawText)
         } catch {
             log("GPT cleanup failed: \(error.localizedDescription). Using raw text.")
-            return rawText
+            cleaned = rawText
         }
+        return SettingsManager.shared.applyReplacements(cleaned)
     }
 
     private func callGPT(rawText: String) async throws -> String {
