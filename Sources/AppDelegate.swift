@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let keyMonitor = KeyMonitor()
 
     private let settingsWindow = SettingsWindow()
+    private let welcomeWindow = WelcomeWindow()
 
     private var isRecording = false
     private var isProcessing = false
@@ -25,6 +26,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("App launched")
         AudioRecorder.cleanupStaleFiles()
+
+        if Config.hasAPIKey {
+            startApp()
+        } else {
+            log("No API key found, showing welcome window")
+            welcomeWindow.onComplete = { [weak self] in
+                self?.startApp()
+            }
+            welcomeWindow.show()
+        }
+    }
+
+    private func startApp() {
         setupMenuBar()
         requestPermissions()
         startKeyMonitor()
@@ -112,6 +126,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Recording Flow
 
     private func handleFnDown() {
+        guard Config.hasAPIKey else {
+            log("Ignoring fn down (no API key configured)")
+            return
+        }
         guard !isRecording && !isProcessing else {
             log("Ignoring fn down (recording=\(isRecording), processing=\(isProcessing))")
             return

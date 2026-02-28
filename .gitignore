@@ -13,3 +13,5 @@ build/
 *.p12
 xcuserdata/
 .swiftpm/
+*.dmg
+dmg-temp/

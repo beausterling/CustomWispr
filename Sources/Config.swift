@@ -17,6 +17,27 @@ enum Config {
         fatalError("No OpenAI API key found. Create ~/.custom-wispr.env with OPENAI_API_KEY=your-key-here or set OPENAI_API_KEY env var.")
     }
 
+    static var hasAPIKey: Bool {
+        if readKeyFromEnvFile() != nil { return true }
+        if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty { return true }
+        return false
+    }
+
+    static func saveAPIKey(_ key: String) -> Bool {
+        let path = NSString("~/.custom-wispr.env").expandingTildeInPath
+        let content = "OPENAI_API_KEY=\(key)\n"
+        do {
+            try content.write(toFile: path, atomically: true, encoding: .utf8)
+            // Set permissions to 600 (owner read/write only)
+            let fm = FileManager.default
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            return true
+        } catch {
+            fputs("[ERROR] Failed to save API key: \(error.localizedDescription)\n", stderr)
+            return false
+        }
+    }
+
     private static func readKeyFromEnvFile() -> String? {
         let path = NSString("~/.custom-wispr.env").expandingTildeInPath
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {

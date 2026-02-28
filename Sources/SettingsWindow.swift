@@ -1,9 +1,11 @@
 import Cocoa
 
-class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTabViewDelegate {
     private var window: NSWindow?
     private var tableView: NSTableView?
     private var rows: [(find: String, replace: String)] = []
+    private var apiKeyField: NSSecureTextField?
+    private var apiKeyStatusLabel: NSTextField?
 
     func show() {
         if let existing = window, existing.isVisible {
@@ -15,35 +17,128 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         rows = SettingsManager.shared.replacements.map { ($0.find, $0.replace) }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Settings"
         window.center()
-        window.minSize = NSSize(width: 400, height: 300)
+        window.minSize = NSSize(width: 460, height: 360)
 
-        let contentView = NSView(frame: window.contentView!.bounds)
-        contentView.autoresizingMask = [.width, .height]
+        let tabView = NSTabView(frame: window.contentView!.bounds)
+        tabView.autoresizingMask = [.width, .height]
+        tabView.delegate = self
 
-        // Title label
+        // Tab 1: API Key
+        let apiKeyTab = NSTabViewItem(identifier: "apikey")
+        apiKeyTab.label = "API Key"
+        apiKeyTab.view = buildAPIKeyTab(width: 520, height: 380)
+        tabView.addTabViewItem(apiKeyTab)
+
+        // Tab 2: Find & Replace
+        let findReplaceTab = NSTabViewItem(identifier: "findreplace")
+        findReplaceTab.label = "Find & Replace"
+        findReplaceTab.view = buildFindReplaceTab(width: 520, height: 380)
+        tabView.addTabViewItem(findReplaceTab)
+
+        // Tab 3: Customize
+        let customizeTab = NSTabViewItem(identifier: "customize")
+        customizeTab.label = "Customize"
+        customizeTab.view = buildCustomizeTab(width: 520, height: 380)
+        tabView.addTabViewItem(customizeTab)
+
+        window.contentView = tabView
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        self.window = window
+    }
+
+    // MARK: - Tab 1: API Key
+
+    private func buildAPIKeyTab(width: CGFloat, height: CGFloat) -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        var y = height - 30
+
+        let titleLabel = NSTextField(labelWithString: "OpenAI API Key")
+        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 22)
+        titleLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(titleLabel)
+        y -= 28
+
+        let statusLabel = NSTextField(labelWithString: Config.hasAPIKey ? "Status: Configured" : "Status: Not configured")
+        statusLabel.font = NSFont.systemFont(ofSize: 12)
+        statusLabel.textColor = Config.hasAPIKey ? .systemGreen : .systemOrange
+        statusLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 18)
+        statusLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(statusLabel)
+        self.apiKeyStatusLabel = statusLabel
+        y -= 36
+
+        let fieldLabel = NSTextField(labelWithString: "Enter a new API key to update:")
+        fieldLabel.font = NSFont.systemFont(ofSize: 13)
+        fieldLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 18)
+        fieldLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(fieldLabel)
+        y -= 30
+
+        let keyField = NSSecureTextField()
+        keyField.placeholderString = "sk-..."
+        keyField.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        keyField.frame = NSRect(x: 20, y: y, width: width - 40, height: 28)
+        keyField.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(keyField)
+        self.apiKeyField = keyField
+        y -= 40
+
+        let saveButton = NSButton(title: "Save API Key", target: self, action: #selector(saveAPIKeyClicked))
+        saveButton.bezelStyle = .rounded
+        saveButton.frame = NSRect(x: 20, y: y, width: 120, height: 32)
+        saveButton.autoresizingMask = [.maxXMargin, .minYMargin]
+        view.addSubview(saveButton)
+
+        return view
+    }
+
+    @objc private func saveAPIKeyClicked() {
+        guard let keyField = apiKeyField else { return }
+        let key = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+
+        if Config.saveAPIKey(key) {
+            log("API key updated from settings")
+            keyField.stringValue = ""
+            apiKeyStatusLabel?.stringValue = "Status: Configured"
+            apiKeyStatusLabel?.textColor = .systemGreen
+        }
+    }
+
+    // MARK: - Tab 2: Find & Replace
+
+    private func buildFindReplaceTab(width: CGFloat, height: CGFloat) -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        var y = height - 30
+
         let titleLabel = NSTextField(labelWithString: "Find & Replace")
         titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        titleLabel.frame = NSRect(x: 20, y: contentView.bounds.height - 40, width: 480, height: 22)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 22)
         titleLabel.autoresizingMask = [.width, .minYMargin]
-        contentView.addSubview(titleLabel)
+        view.addSubview(titleLabel)
+        y -= 28
 
-        // Subtitle label
         let subtitleLabel = NSTextField(wrappingLabelWithString: "Fix words that are consistently mistranscribed. Replacements are applied after each transcription.")
         subtitleLabel.font = NSFont.systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.frame = NSRect(x: 20, y: contentView.bounds.height - 72, width: 480, height: 28)
+        subtitleLabel.frame = NSRect(x: 20, y: y - 10, width: width - 40, height: 28)
         subtitleLabel.autoresizingMask = [.width, .minYMargin]
-        contentView.addSubview(subtitleLabel)
+        view.addSubview(subtitleLabel)
+        y -= 48
 
         // Table view
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 60, width: contentView.bounds.width - 40, height: contentView.bounds.height - 140))
+        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 56, width: width - 40, height: y - 56))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .bezelBorder
@@ -69,7 +164,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         tableView.delegate = self
 
         scrollView.documentView = tableView
-        contentView.addSubview(scrollView)
+        view.addSubview(scrollView)
         self.tableView = tableView
 
         // + button
@@ -77,30 +172,125 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         addButton.bezelStyle = .rounded
         addButton.frame = NSRect(x: 20, y: 16, width: 32, height: 32)
         addButton.autoresizingMask = [.maxXMargin, .maxYMargin]
-        contentView.addSubview(addButton)
+        view.addSubview(addButton)
 
         // - button
         let removeButton = NSButton(title: "\u{2212}", target: self, action: #selector(removeRow))
         removeButton.bezelStyle = .rounded
         removeButton.frame = NSRect(x: 56, y: 16, width: 32, height: 32)
         removeButton.autoresizingMask = [.maxXMargin, .maxYMargin]
-        contentView.addSubview(removeButton)
+        view.addSubview(removeButton)
 
         // Save button
         let saveButton = NSButton(title: "Save", target: self, action: #selector(saveClicked))
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"
-        saveButton.frame = NSRect(x: contentView.bounds.width - 100, y: 16, width: 80, height: 32)
+        saveButton.frame = NSRect(x: width - 100, y: 16, width: 80, height: 32)
         saveButton.autoresizingMask = [.minXMargin, .maxYMargin]
-        contentView.addSubview(saveButton)
+        view.addSubview(saveButton)
 
-        window.contentView = contentView
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        self.window = window
+        return view
     }
 
-    // MARK: - Actions
+    // MARK: - Tab 3: Customize
+
+    private func buildCustomizeTab(width: CGFloat, height: CGFloat) -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        var y = height - 30
+
+        let titleLabel = NSTextField(labelWithString: "Customize CustomWispr")
+        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 22)
+        titleLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(titleLabel)
+        y -= 28
+
+        let descLabel = NSTextField(wrappingLabelWithString: "Copy the prompt below into any coding agent (Claude Code, Cursor, etc.) to fork and customize this app.")
+        descLabel.font = NSFont.systemFont(ofSize: 12)
+        descLabel.textColor = .secondaryLabelColor
+        descLabel.frame = NSRect(x: 20, y: y - 10, width: width - 40, height: 32)
+        descLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(descLabel)
+        y -= 48
+
+        // Prompt text view
+        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 56, width: width - 40, height: y - 56))
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .bezelBorder
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: width - 44, height: y - 56))
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.autoresizingMask = [.width]
+        textView.string = customizePrompt
+        scrollView.documentView = textView
+        view.addSubview(scrollView)
+
+        // Copy button
+        let copyButton = NSButton(title: "Copy to Clipboard", target: self, action: #selector(copyPromptClicked))
+        copyButton.bezelStyle = .rounded
+        copyButton.frame = NSRect(x: 20, y: 16, width: 140, height: 32)
+        copyButton.autoresizingMask = [.maxXMargin, .maxYMargin]
+        view.addSubview(copyButton)
+
+        // GitHub button
+        let ghButton = NSButton(title: "View on GitHub", target: self, action: #selector(openGitHubClicked))
+        ghButton.bezelStyle = .rounded
+        ghButton.frame = NSRect(x: width - 140, y: 16, width: 120, height: 32)
+        ghButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        view.addSubview(ghButton)
+
+        return view
+    }
+
+    private var customizePrompt: String {
+        return """
+        Clone and customize CustomWispr — a macOS menu bar speech-to-text app.
+
+        GitHub: https://github.com/beausterling/CustomWispr
+
+        Key files:
+        - Sources/Config.swift          — API key loading and app configuration
+        - Sources/AppDelegate.swift     — App lifecycle, menu bar, recording flow
+        - Sources/AudioRecorder.swift   — Microphone recording to file
+        - Sources/WhisperService.swift   — OpenAI Whisper transcription API
+        - Sources/AICleanupService.swift — GPT post-processing of transcriptions
+        - Sources/TextInjector.swift     — Pastes text into the active app
+        - Sources/KeyMonitor.swift       — Global fn key listener (CGEventTap)
+        - Sources/SettingsWindow.swift   — Settings UI with find/replace
+        - Sources/SettingsManager.swift  — Persists user settings to disk
+        - Sources/OverlayWindow.swift    — Recording status overlay
+        - Sources/WelcomeWindow.swift    — First-run onboarding
+        - Resources/Info.plist           — App bundle metadata
+        - Resources/entitlements.plist   — macOS permissions
+        - build-arm64.sh                 — Build for Apple Silicon
+        - build.sh                       — Build for Intel
+        - build-universal.sh             — Universal binary + DMG
+
+        Build: ./build-arm64.sh (or ./build-universal.sh for distribution)
+        Run:   open CustomWispr.app
+
+        My customization request:
+        [Describe what you want to change here]
+        """
+    }
+
+    @objc private func copyPromptClicked() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(customizePrompt, forType: .string)
+    }
+
+    @objc private func openGitHubClicked() {
+        if let url = URL(string: "https://github.com/beausterling/CustomWispr") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: - Find & Replace Actions
 
     @objc private func addRow() {
         rows.append((find: "", replace: ""))
