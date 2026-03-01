@@ -1,13 +1,33 @@
 import Cocoa
 import ServiceManagement
 
-class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTabViewDelegate {
+class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     private var window: NSWindow?
     private var tableView: NSTableView?
     private var rows: [(find: String, replace: String)] = []
-    private var apiKeyField: NSSecureTextField?
+    private var apiKeyField: NSTextField?
     private var apiKeyStatusLabel: NSTextField?
     private var loginCheckbox: NSButton?
+
+    // API key masking
+    private var apiKeyValue = ""
+    private var isUpdatingMask = false
+
+    // Custom tab bar
+    private var currentTab = 0
+    private var tabButtons: [NSButton] = []
+    private var tabUnderlines: [NSView] = []
+    private var contentContainer: NSView?
+
+    // MARK: - Colors (matching customwispr-site)
+
+    private let bgColor = NSColor(red: 0x0e/255.0, green: 0x0e/255.0, blue: 0x10/255.0, alpha: 1.0)
+    private let textColor = NSColor(red: 0xe8/255.0, green: 0xe6/255.0, blue: 0xe3/255.0, alpha: 1.0)
+    private let mutedColor = NSColor(red: 0x94/255.0, green: 0x92/255.0, blue: 0x9d/255.0, alpha: 1.0)
+    private let accentColor = NSColor(red: 0xf5/255.0, green: 0x9e/255.0, blue: 0x0b/255.0, alpha: 1.0)
+    private let borderColor = NSColor(white: 1.0, alpha: 0.08)
+    private let cardBgColor = NSColor(white: 1.0, alpha: 0.03)
+    private let greenColor = NSColor(red: 0x22/255.0, green: 0xc5/255.0, blue: 0x5e/255.0, alpha: 1.0)
 
     func show() {
         if let existing = window, existing.isVisible {
@@ -17,6 +37,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
         }
 
         rows = SettingsManager.shared.replacements.map { ($0.find, $0.replace) }
+        apiKeyValue = ""
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
@@ -27,33 +48,114 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
         window.title = "Settings"
         window.center()
         window.minSize = NSSize(width: 460, height: 360)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = bgColor
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
 
-        let tabView = NSTabView(frame: window.contentView!.bounds)
-        tabView.autoresizingMask = [.width, .height]
-        tabView.delegate = self
+        let contentView = NSView(frame: window.contentView!.bounds)
+        contentView.autoresizingMask = [.width, .height]
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = bgColor.cgColor
 
-        // Tab 1: API Key
-        let apiKeyTab = NSTabViewItem(identifier: "apikey")
-        apiKeyTab.label = "API Key"
-        apiKeyTab.view = buildAPIKeyTab(width: 520, height: 380)
-        tabView.addTabViewItem(apiKeyTab)
+        // Build custom tab bar
+        buildTabBar(in: contentView)
 
-        // Tab 2: Find & Replace
-        let findReplaceTab = NSTabViewItem(identifier: "findreplace")
-        findReplaceTab.label = "Find & Replace"
-        findReplaceTab.view = buildFindReplaceTab(width: 520, height: 380)
-        tabView.addTabViewItem(findReplaceTab)
+        // Build content container
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: contentView.bounds.width, height: contentView.bounds.height - 44))
+        container.autoresizingMask = [.width, .height]
+        contentView.addSubview(container)
+        self.contentContainer = container
 
-        // Tab 3: Customize
-        let customizeTab = NSTabViewItem(identifier: "customize")
-        customizeTab.label = "Customize"
-        customizeTab.view = buildCustomizeTab(width: 520, height: 380)
-        tabView.addTabViewItem(customizeTab)
+        window.contentView = contentView
+        currentTab = 0
+        showTab(currentTab)
 
-        window.contentView = tabView
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
+    }
+
+    // MARK: - Custom Tab Bar
+
+    private func buildTabBar(in parent: NSView) {
+        let tabBarHeight: CGFloat = 44
+        let width = parent.bounds.width
+        let tabBar = NSView(frame: NSRect(x: 0, y: parent.bounds.height - tabBarHeight, width: width, height: tabBarHeight))
+        tabBar.autoresizingMask = [.width, .minYMargin]
+        tabBar.wantsLayer = true
+
+        // Bottom border for tab bar
+        let separator = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 1))
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = borderColor.cgColor
+        separator.autoresizingMask = [.width]
+        tabBar.addSubview(separator)
+
+        let tabTitles = ["API Key", "Find & Replace", "Customize"]
+        let tabWidth = width / CGFloat(tabTitles.count)
+
+        tabButtons = []
+        tabUnderlines = []
+
+        for (i, title) in tabTitles.enumerated() {
+            let button = NSButton(title: title, target: self, action: #selector(tabClicked(_:)))
+            button.tag = i
+            button.isBordered = false
+            button.wantsLayer = true
+            button.frame = NSRect(x: CGFloat(i) * tabWidth, y: 4, width: tabWidth, height: tabBarHeight - 6)
+            button.autoresizingMask = i == tabTitles.count - 1 ? [.minXMargin, .width] : (i == 0 ? [.maxXMargin, .width] : [.width])
+            tabBar.addSubview(button)
+            tabButtons.append(button)
+
+            // Underline indicator
+            let underline = NSView(frame: NSRect(x: CGFloat(i) * tabWidth + 10, y: 1, width: tabWidth - 20, height: 2))
+            underline.wantsLayer = true
+            underline.layer?.cornerRadius = 1
+            underline.autoresizingMask = button.autoresizingMask
+            tabBar.addSubview(underline)
+            tabUnderlines.append(underline)
+        }
+
+        parent.addSubview(tabBar)
+        updateTabAppearance()
+    }
+
+    private func updateTabAppearance() {
+        for (i, button) in tabButtons.enumerated() {
+            let isActive = i == currentTab
+            let color = isActive ? accentColor : mutedColor
+            button.attributedTitle = NSAttributedString(
+                string: button.title,
+                attributes: [
+                    .foregroundColor: color,
+                    .font: NSFont.systemFont(ofSize: 13, weight: isActive ? .semibold : .medium)
+                ]
+            )
+            tabUnderlines[i].layer?.backgroundColor = isActive ? accentColor.cgColor : NSColor.clear.cgColor
+        }
+    }
+
+    @objc private func tabClicked(_ sender: NSButton) {
+        currentTab = sender.tag
+        updateTabAppearance()
+        showTab(currentTab)
+    }
+
+    private func showTab(_ index: Int) {
+        guard let container = contentContainer else { return }
+        container.subviews.forEach { $0.removeFromSuperview() }
+
+        let width = container.bounds.width
+        let height = container.bounds.height
+
+        switch index {
+        case 0: container.addSubview(buildAPIKeyTab(width: width, height: height))
+        case 1: container.addSubview(buildFindReplaceTab(width: width, height: height))
+        case 2: container.addSubview(buildCustomizeTab(width: width, height: height))
+        default: break
+        }
     }
 
     // MARK: - Tab 1: API Key
@@ -63,54 +165,74 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
 
         var y = height - 30
 
-        let titleLabel = NSTextField(labelWithString: "OpenAI API Key")
-        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 22)
+        let titleLabel = makeLabel("OpenAI API Key", size: 18, weight: .bold, color: textColor)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 24)
         titleLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(titleLabel)
         y -= 28
 
-        let statusLabel = NSTextField(labelWithString: Config.hasAPIKey ? "Status: Configured" : "Status: Not configured")
-        statusLabel.font = NSFont.systemFont(ofSize: 12)
-        statusLabel.textColor = Config.hasAPIKey ? .systemGreen : .systemOrange
+        let statusLabel = makeLabel(
+            Config.hasAPIKey ? "Status: Configured" : "Status: Not configured",
+            size: 12, weight: .medium,
+            color: Config.hasAPIKey ? greenColor : accentColor
+        )
         statusLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 18)
         statusLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(statusLabel)
         self.apiKeyStatusLabel = statusLabel
         y -= 36
 
-        let fieldLabel = NSTextField(labelWithString: "Enter a new API key to update:")
-        fieldLabel.font = NSFont.systemFont(ofSize: 13)
+        let fieldLabel = makeLabel("Enter a new API key to update:", size: 13, weight: .regular, color: mutedColor)
         fieldLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 18)
         fieldLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(fieldLabel)
-        y -= 30
+        y -= 34
 
-        let keyField = NSSecureTextField()
+        // Regular NSTextField with bullet masking
+        let keyField = NSTextField()
         keyField.placeholderString = "sk-..."
         keyField.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        keyField.frame = NSRect(x: 20, y: y, width: width - 40, height: 28)
+        keyField.frame = NSRect(x: 20, y: y, width: width - 40, height: 32)
         keyField.autoresizingMask = [.width, .minYMargin]
+        keyField.usesSingleLineMode = true
+        keyField.cell?.wraps = false
+        keyField.cell?.isScrollable = true
+        keyField.cell?.lineBreakMode = .byTruncatingTail
+        keyField.maximumNumberOfLines = 1
+        keyField.wantsLayer = true
+        keyField.layer?.cornerRadius = 8
+        keyField.layer?.borderWidth = 1
+        keyField.layer?.borderColor = borderColor.cgColor
+        keyField.backgroundColor = NSColor(white: 1.0, alpha: 0.05)
+        keyField.textColor = textColor
+        keyField.focusRingType = .none
+        keyField.delegate = self
         view.addSubview(keyField)
         self.apiKeyField = keyField
-        y -= 40
+        y -= 44
 
-        let saveButton = NSButton(title: "Save API Key", target: self, action: #selector(saveAPIKeyClicked))
-        saveButton.bezelStyle = .rounded
-        saveButton.frame = NSRect(x: 20, y: y, width: 120, height: 32)
+        let saveButton = makeAmberButton(title: "Save API Key", target: self, action: #selector(saveAPIKeyClicked))
+        saveButton.frame = NSRect(x: 20, y: y, width: 140, height: 36)
         saveButton.autoresizingMask = [.maxXMargin, .minYMargin]
         view.addSubview(saveButton)
         y -= 50
 
-        // Launch at Login
-        let divider = NSBox()
-        divider.boxType = .separator
-        divider.frame = NSRect(x: 20, y: y + 14, width: width - 40, height: 1)
+        // Divider
+        let divider = NSView(frame: NSRect(x: 20, y: y + 14, width: width - 40, height: 1))
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = borderColor.cgColor
         divider.autoresizingMask = [.width, .minYMargin]
         view.addSubview(divider)
 
+        // Launch at Login
         let loginCheckbox = NSButton(checkboxWithTitle: "Launch CustomWispr at login", target: self, action: #selector(toggleLaunchAtLogin(_:)))
-        loginCheckbox.font = NSFont.systemFont(ofSize: 13)
+        loginCheckbox.attributedTitle = NSAttributedString(
+            string: "Launch CustomWispr at login",
+            attributes: [
+                .foregroundColor: textColor,
+                .font: NSFont.systemFont(ofSize: 13)
+            ]
+        )
         loginCheckbox.frame = NSRect(x: 20, y: y - 10, width: width - 40, height: 20)
         loginCheckbox.autoresizingMask = [.width, .minYMargin]
         if #available(macOS 13.0, *) {
@@ -123,15 +245,15 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
     }
 
     @objc private func saveAPIKeyClicked() {
-        guard let keyField = apiKeyField else { return }
-        let key = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
 
         if Config.saveAPIKey(key) {
             log("API key updated from settings")
-            keyField.stringValue = ""
+            apiKeyValue = ""
+            apiKeyField?.stringValue = ""
             apiKeyStatusLabel?.stringValue = "Status: Configured"
-            apiKeyStatusLabel?.textColor = .systemGreen
+            apiKeyStatusLabel?.textColor = greenColor
         }
     }
 
@@ -148,10 +270,63 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
                 }
             } catch {
                 log("Launch at login error: \(error.localizedDescription)")
-                // Revert checkbox state on failure
                 sender.state = sender.state == .on ? .off : .on
             }
         }
+    }
+
+    // MARK: - NSTextFieldDelegate (API Key Masking)
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard !isUpdatingMask,
+              let field = obj.object as? NSTextField,
+              field === apiKeyField else { return }
+
+        let newText = field.stringValue
+        let cursorPos: Int = field.currentEditor()?.selectedRange.location ?? newText.count
+
+        if newText.isEmpty {
+            apiKeyValue = ""
+            return
+        }
+
+        let bullet: Character = "\u{2022}"
+        let hasBullets = newText.contains(bullet)
+        let hasNonBullets = newText.contains(where: { $0 != bullet })
+
+        if !hasBullets {
+            apiKeyValue = newText
+        } else if hasNonBullets {
+            let chars = Array(newText)
+            let leadingBullets = chars.prefix(while: { $0 == bullet }).count
+            let trailingBullets = Array(chars.reversed()).prefix(while: { $0 == bullet }).count
+            let middleStart = leadingBullets
+            let middleEnd = chars.count - trailingBullets
+            let newChars = String(chars[middleStart..<middleEnd].filter { $0 != bullet })
+
+            let prefix = String(apiKeyValue.prefix(leadingBullets))
+            let suffix = String(apiKeyValue.suffix(trailingBullets))
+            apiKeyValue = prefix + newChars + suffix
+        } else {
+            let removedCount = apiKeyValue.count - newText.count
+            if removedCount > 0 && cursorPos >= 0 && cursorPos + removedCount <= apiKeyValue.count {
+                let startIdx = apiKeyValue.index(apiKeyValue.startIndex, offsetBy: cursorPos)
+                let endIdx = apiKeyValue.index(startIdx, offsetBy: removedCount)
+                apiKeyValue.removeSubrange(startIdx..<endIdx)
+            } else if newText.count < apiKeyValue.count {
+                apiKeyValue = String(apiKeyValue.prefix(newText.count))
+            }
+        }
+
+        isUpdatingMask = true
+        let masked = String(repeating: bullet, count: apiKeyValue.count)
+        if let editor = field.currentEditor() as? NSTextView {
+            editor.string = masked
+            editor.setSelectedRange(NSRange(location: min(cursorPos, apiKeyValue.count), length: 0))
+        } else {
+            field.stringValue = masked
+        }
+        isUpdatingMask = false
     }
 
     // MARK: - Tab 2: Find & Replace
@@ -161,70 +336,84 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
 
         var y = height - 30
 
-        let titleLabel = NSTextField(labelWithString: "Find & Replace")
-        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 22)
+        let titleLabel = makeLabel("Find & Replace", size: 18, weight: .bold, color: textColor)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 24)
         titleLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(titleLabel)
-        y -= 28
+        y -= 26
 
         let subtitleLabel = NSTextField(wrappingLabelWithString: "Fix words that are consistently mistranscribed. Replacements are applied after each transcription.")
         subtitleLabel.font = NSFont.systemFont(ofSize: 12)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.frame = NSRect(x: 20, y: y - 10, width: width - 40, height: 28)
+        subtitleLabel.textColor = mutedColor
+        subtitleLabel.backgroundColor = .clear
+        subtitleLabel.isBordered = false
+        subtitleLabel.isEditable = false
+        subtitleLabel.frame = NSRect(x: 20, y: y - 14, width: width - 40, height: 28)
         subtitleLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(subtitleLabel)
         y -= 48
 
-        // Table view
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 56, width: width - 40, height: y - 56))
+        // Table in a card container
+        let cardFrame = NSRect(x: 20, y: 56, width: width - 40, height: y - 56)
+        let card = NSView(frame: cardFrame)
+        card.wantsLayer = true
+        card.layer?.backgroundColor = cardBgColor.cgColor
+        card.layer?.cornerRadius = 12
+        card.layer?.borderWidth = 1
+        card.layer?.borderColor = borderColor.cgColor
+        card.autoresizingMask = [.width, .height]
+
+        let scrollView = NSScrollView(frame: NSRect(x: 1, y: 1, width: cardFrame.width - 2, height: cardFrame.height - 2))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
 
         let tableView = NSTableView()
-        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.backgroundColor = .clear
+        tableView.usesAlternatingRowBackgroundColors = false
         tableView.allowsMultipleSelection = false
         tableView.rowHeight = 24
+        tableView.gridColor = borderColor
+        tableView.gridStyleMask = .solidHorizontalGridLineMask
 
         let findColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("find"))
         findColumn.title = "Find"
         findColumn.isEditable = true
         findColumn.minWidth = 120
+        findColumn.headerCell.textColor = textColor
         tableView.addTableColumn(findColumn)
 
         let replaceColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("replace"))
         replaceColumn.title = "Replace With"
         replaceColumn.isEditable = true
         replaceColumn.minWidth = 120
+        replaceColumn.headerCell.textColor = textColor
         tableView.addTableColumn(replaceColumn)
 
         tableView.dataSource = self
         tableView.delegate = self
 
         scrollView.documentView = tableView
-        view.addSubview(scrollView)
+        card.addSubview(scrollView)
+        view.addSubview(card)
         self.tableView = tableView
 
         // + button
-        let addButton = NSButton(title: "+", target: self, action: #selector(addRow))
-        addButton.bezelStyle = .rounded
-        addButton.frame = NSRect(x: 20, y: 16, width: 32, height: 32)
+        let addButton = makeSecondaryButton(title: "+", target: self, action: #selector(addRow))
+        addButton.frame = NSRect(x: 20, y: 14, width: 36, height: 32)
         addButton.autoresizingMask = [.maxXMargin, .maxYMargin]
         view.addSubview(addButton)
 
         // - button
-        let removeButton = NSButton(title: "\u{2212}", target: self, action: #selector(removeRow))
-        removeButton.bezelStyle = .rounded
-        removeButton.frame = NSRect(x: 56, y: 16, width: 32, height: 32)
+        let removeButton = makeSecondaryButton(title: "\u{2212}", target: self, action: #selector(removeRow))
+        removeButton.frame = NSRect(x: 62, y: 14, width: 36, height: 32)
         removeButton.autoresizingMask = [.maxXMargin, .maxYMargin]
         view.addSubview(removeButton)
 
         // Save button
-        let saveButton = NSButton(title: "Save", target: self, action: #selector(saveClicked))
-        saveButton.bezelStyle = .rounded
-        saveButton.keyEquivalent = "\r"
-        saveButton.frame = NSRect(x: width - 100, y: 16, width: 80, height: 32)
+        let saveButton = makeAmberButton(title: "Save", target: self, action: #selector(saveClicked))
+        saveButton.frame = NSRect(x: width - 100, y: 14, width: 80, height: 36)
         saveButton.autoresizingMask = [.minXMargin, .maxYMargin]
         view.addSubview(saveButton)
 
@@ -238,50 +427,78 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
 
         var y = height - 30
 
-        let titleLabel = NSTextField(labelWithString: "Customize CustomWispr")
-        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 22)
+        let titleLabel = makeLabel("Customize CustomWispr", size: 18, weight: .bold, color: textColor)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 24)
         titleLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(titleLabel)
-        y -= 28
+        y -= 26
 
         let descLabel = NSTextField(wrappingLabelWithString: "Copy the prompt below into any coding agent (Claude Code, Cursor, etc.) to fork and customize this app.")
         descLabel.font = NSFont.systemFont(ofSize: 12)
-        descLabel.textColor = .secondaryLabelColor
-        descLabel.frame = NSRect(x: 20, y: y - 10, width: width - 40, height: 32)
+        descLabel.textColor = mutedColor
+        descLabel.backgroundColor = .clear
+        descLabel.isBordered = false
+        descLabel.isEditable = false
+        descLabel.frame = NSRect(x: 20, y: y - 14, width: width - 40, height: 32)
         descLabel.autoresizingMask = [.width, .minYMargin]
         view.addSubview(descLabel)
-        y -= 48
+        y -= 52
 
-        // Prompt text view
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 56, width: width - 40, height: y - 56))
+        // Prompt text view in card container
+        let cardFrame = NSRect(x: 20, y: 80, width: width - 40, height: y - 80)
+        let card = NSView(frame: cardFrame)
+        card.wantsLayer = true
+        card.layer?.backgroundColor = cardBgColor.cgColor
+        card.layer?.cornerRadius = 12
+        card.layer?.borderWidth = 1
+        card.layer?.borderColor = borderColor.cgColor
+        card.autoresizingMask = [.width, .height]
+
+        let scrollView = NSScrollView(frame: NSRect(x: 1, y: 1, width: cardFrame.width - 2, height: cardFrame.height - 2))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
 
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: width - 44, height: y - 56))
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: cardFrame.width - 6, height: cardFrame.height - 2))
         textView.isEditable = false
         textView.isSelectable = true
         textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.autoresizingMask = [.width]
+        textView.backgroundColor = .clear
+        textView.textColor = textColor
         textView.string = customizePrompt
         scrollView.documentView = textView
-        view.addSubview(scrollView)
+        card.addSubview(scrollView)
+        view.addSubview(card)
 
-        // Copy button
-        let copyButton = NSButton(title: "Copy to Clipboard", target: self, action: #selector(copyPromptClicked))
-        copyButton.bezelStyle = .rounded
-        copyButton.frame = NSRect(x: 20, y: 16, width: 140, height: 32)
+        // Copy to Clipboard button
+        let copyButton = makeAmberButton(title: "Copy to Clipboard", target: self, action: #selector(copyPromptClicked))
+        copyButton.frame = NSRect(x: 20, y: 14, width: 160, height: 36)
         copyButton.autoresizingMask = [.maxXMargin, .maxYMargin]
         view.addSubview(copyButton)
 
-        // GitHub button
-        let ghButton = NSButton(title: "View on GitHub", target: self, action: #selector(openGitHubClicked))
-        ghButton.bezelStyle = .rounded
-        ghButton.frame = NSRect(x: width - 140, y: 16, width: 120, height: 32)
-        ghButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        // View on GitHub button
+        let ghButton = makeSecondaryButton(title: "View on GitHub", target: self, action: #selector(openGitHubClicked))
+        ghButton.frame = NSRect(x: 190, y: 14, width: 130, height: 36)
+        ghButton.autoresizingMask = [.maxXMargin, .maxYMargin]
         view.addSubview(ghButton)
+
+        // Buy Me a Coffee link
+        let coffeeButton = NSButton(title: "Buy Me a Coffee \u{2615}", target: self, action: #selector(openBuyMeACoffee))
+        coffeeButton.isBordered = false
+        coffeeButton.attributedTitle = NSAttributedString(
+            string: "Buy Me a Coffee \u{2615}",
+            attributes: [
+                .foregroundColor: accentColor,
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ]
+        )
+        coffeeButton.frame = NSRect(x: width - 170, y: 18, width: 150, height: 20)
+        coffeeButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        view.addSubview(coffeeButton)
 
         return view
     }
@@ -329,6 +546,12 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
         }
     }
 
+    @objc private func openBuyMeACoffee() {
+        if let url = URL(string: "https://buymeacoffee.com/beausterling") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     // MARK: - Find & Replace Actions
 
     @objc private func addRow() {
@@ -348,6 +571,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
     }
 
     @objc private func saveClicked() {
+        window?.makeFirstResponder(nil) // End any active cell editing
         commitEditing()
         let filtered = rows.filter { !$0.find.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         SettingsManager.shared.replacements = filtered.map { Replacement(find: $0.find, replace: $0.replace) }
@@ -393,6 +617,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
             textField.drawsBackground = false
             textField.isEditable = true
             textField.font = NSFont.systemFont(ofSize: 13)
+            textField.textColor = textColor
             textField.lineBreakMode = .byTruncatingTail
             textField.target = self
             textField.action = #selector(textFieldEdited(_:))
@@ -432,5 +657,52 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
         } else {
             rows[row].replace = sender.stringValue
         }
+    }
+
+    // MARK: - UI Helpers
+
+    private func makeLabel(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: size, weight: weight)
+        label.textColor = color
+        label.backgroundColor = .clear
+        label.isBordered = false
+        label.isEditable = false
+        label.isSelectable = false
+        return label
+    }
+
+    private func makeAmberButton(title: String, target: Any?, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: target, action: action)
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.backgroundColor = accentColor.cgColor
+        button.layer?.cornerRadius = 12
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: NSColor.black,
+                .font: NSFont.systemFont(ofSize: 14, weight: .semibold)
+            ]
+        )
+        return button
+    }
+
+    private func makeSecondaryButton(title: String, target: Any?, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: target, action: action)
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.clear.cgColor
+        button.layer?.cornerRadius = 12
+        button.layer?.borderWidth = 1
+        button.layer?.borderColor = borderColor.cgColor
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: textColor,
+                .font: NSFont.systemFont(ofSize: 14, weight: .medium)
+            ]
+        )
+        return button
     }
 }

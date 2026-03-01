@@ -167,20 +167,19 @@ class WelcomeWindow: NSObject, NSTextFieldDelegate {
         container.addSubview(desc)
 
         // Card with instructions
-        let card = makeCard(frame: NSRect(x: 60, y: 210, width: width - 120, height: 90))
+        let card = makeCard(frame: NSRect(x: 60, y: 195, width: width - 120, height: 110))
         container.addSubview(card)
 
         let step1 = makeLabel("1. Open System Settings > Keyboard", size: 13, weight: .regular, color: textColor)
-        step1.frame = NSRect(x: 20, y: 55, width: card.bounds.width - 40, height: 18)
+        step1.frame = NSRect(x: 20, y: 75, width: card.bounds.width - 40, height: 18)
         card.addSubview(step1)
 
         let step2 = makeLabel("2. Set \"Press fn key to\" to \"Do Nothing\"", size: 13, weight: .regular, color: textColor)
-        step2.frame = NSRect(x: 20, y: 30, width: card.bounds.width - 40, height: 18)
+        step2.frame = NSRect(x: 20, y: 50, width: card.bounds.width - 40, height: 18)
         card.addSubview(step2)
 
         let openBtn = makeSecondaryButton(title: "Open Keyboard Settings", target: self, action: #selector(openKeyboardSettings))
-        openBtn.frame = NSRect(x: (card.bounds.width - 200) / 2, y: -5, width: 200, height: 32)
-        // Actually let's put the button outside the card
+        openBtn.frame = NSRect(x: (card.bounds.width - 200) / 2, y: 10, width: 200, height: 32)
         card.addSubview(openBtn)
 
         addNavigationButtons(to: container, showBack: true)
@@ -346,6 +345,11 @@ class WelcomeWindow: NSObject, NSTextFieldDelegate {
         field.frame = NSRect(x: 60, y: 285, width: width - 120, height: 36)
         field.autoresizingMask = [.width]
         field.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+        field.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.cell?.lineBreakMode = .byTruncatingTail
+        field.maximumNumberOfLines = 1
         field.wantsLayer = true
         field.layer?.cornerRadius = 8
         field.layer?.borderWidth = 1
@@ -395,14 +399,22 @@ class WelcomeWindow: NSObject, NSTextFieldDelegate {
         container.addSubview(title)
 
         let desc = makeLabel(
-            "Hold the fn key to record, release to transcribe.\nUse this prompt to customize your app with AI:",
+            "Hold the fn key to record, release to transcribe.",
             size: 14, weight: .regular, color: mutedColor
         )
         desc.alignment = .center
-        desc.maximumNumberOfLines = 3
-        desc.frame = NSRect(x: 40, y: 340, width: width - 80, height: 40)
+        desc.frame = NSRect(x: 40, y: 350, width: width - 80, height: 20)
         desc.autoresizingMask = [.width]
         container.addSubview(desc)
+
+        let promptLabel = makeLabel(
+            "Use this prompt to customize your app with AI:",
+            size: 14, weight: .regular, color: mutedColor
+        )
+        promptLabel.alignment = .center
+        promptLabel.frame = NSRect(x: 40, y: 308, width: width - 80, height: 20)
+        promptLabel.autoresizingMask = [.width]
+        container.addSubview(promptLabel)
 
         // Code block
         let codeText = "Fork and clone https://github.com/beausterling/CustomWispr \u{2014} it\u{2019}s a macOS menu bar speech-to-text app built in Swift. Read the README and codebase, then help me customize it."
