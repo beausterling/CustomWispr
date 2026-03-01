@@ -31,6 +31,7 @@ SWIFT_FLAGS=(
     -framework AVFoundation
     -framework Carbon
     -framework CoreGraphics
+    -framework ServiceManagement
     -swift-version 5
 )
 
@@ -80,7 +81,7 @@ codesign --force --sign - \
 echo "==> Verifying universal binary..."
 lipo -info "${APP_BUNDLE}/Contents/MacOS/${EXECUTABLE}"
 
-# Step 6: Create DMG
+# Step 6: Create DMG (read-write first, so we can style it)
 echo "==> Creating DMG..."
 mkdir -p "${DMG_TEMP}"
 cp -R "${APP_BUNDLE}" "${DMG_TEMP}/"
@@ -94,15 +95,18 @@ hdiutil create \
     -volname "${APP_NAME}" \
     -srcfolder "${DMG_TEMP}" \
     -ov \
-    -format UDZO \
+    -format UDRW \
     "${DMG_NAME}"
 
 # Step 7: Style the DMG (set icon positions for drag-to-install)
-# This step requires disk access permission and may be skipped in sandboxed environments
-echo "==> Styling DMG (optional)..."
-if MOUNT_OUTPUT=$(hdiutil attach "${DMG_NAME}" -readwrite -noverify -noautoopen 2>/dev/null); then
+echo "==> Styling DMG..."
+if MOUNT_OUTPUT=$(hdiutil attach "${DMG_NAME}" -noverify -noautoopen 2>/dev/null); then
     MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)
     if [ -n "$MOUNT_POINT" ]; then
+        # Set volume icon on the mounted volume
+        cp "${RESOURCES_DIR}/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
+        SetFile -a C "$MOUNT_POINT" 2>/dev/null || true
+
         osascript <<APPLESCRIPT 2>/dev/null || true
 tell application "Finder"
     tell disk "${APP_NAME}"
@@ -121,16 +125,18 @@ tell application "Finder"
 end tell
 APPLESCRIPT
         sync
+        sleep 1
         hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
     fi
-
-    # Convert to compressed read-only DMG
-    mv "${DMG_NAME}" "${DMG_NAME}.rw"
-    hdiutil convert "${DMG_NAME}.rw" -format UDZO -o "${DMG_NAME}"
-    rm -f "${DMG_NAME}.rw"
 else
     echo "    (Skipped — hdiutil attach not permitted. DMG is still valid.)"
 fi
+
+# Step 8: Convert to compressed read-only DMG
+echo "==> Compressing DMG..."
+mv "${DMG_NAME}" "${DMG_NAME}.rw"
+hdiutil convert "${DMG_NAME}.rw" -format UDZO -o "${DMG_NAME}"
+rm -f "${DMG_NAME}.rw"
 
 # Step 8: Clean up
 echo "==> Cleaning up..."

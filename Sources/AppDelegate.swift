@@ -27,37 +27,88 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         log("App launched")
         AudioRecorder.cleanupStaleFiles()
 
-        if Config.hasAPIKey {
-            startApp()
-        } else {
-            log("No API key found, showing welcome window")
+        // Always set up menu bar so icon is visible
+        setupMenuBar()
+
+        let hasOnboarded = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+
+        if !hasOnboarded {
+            log("First launch, showing welcome window")
             welcomeWindow.onComplete = { [weak self] in
-                self?.startApp()
+                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+                self?.finishStartup()
             }
             welcomeWindow.show()
+        } else if !Config.hasAPIKey {
+            log("No API key found, showing welcome window")
+            welcomeWindow.onComplete = { [weak self] in
+                self?.finishStartup()
+            }
+            welcomeWindow.show()
+        } else {
+            finishStartup()
         }
     }
 
-    private func startApp() {
-        setupMenuBar()
+    private func finishStartup() {
         requestPermissions()
         startKeyMonitor()
     }
 
     // MARK: - Menu Bar
 
+    private func makeMenuBarIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let w = rect.width
+            let h = rect.height
+
+            // Microphone head — circle centered in upper portion
+            let circleRadius: CGFloat = 5.5
+            let circleCenter = NSPoint(x: w / 2, y: h - 1 - circleRadius)
+            let circlePath = NSBezierPath(
+                ovalIn: NSRect(
+                    x: circleCenter.x - circleRadius,
+                    y: circleCenter.y - circleRadius,
+                    width: circleRadius * 2,
+                    height: circleRadius * 2
+                )
+            )
+            circlePath.lineWidth = 1.6
+            NSColor.black.setStroke()
+            circlePath.stroke()
+
+            // Stem — short line down from circle
+            let stemTop = circleCenter.y - circleRadius
+            let stemBottom = stemTop - 3.0
+            let stemPath = NSBezierPath()
+            stemPath.move(to: NSPoint(x: w / 2, y: stemTop))
+            stemPath.line(to: NSPoint(x: w / 2, y: stemBottom))
+            stemPath.lineWidth = 1.6
+            stemPath.lineCapStyle = .round
+            stemPath.stroke()
+
+            // Base — horizontal line at bottom
+            let baseY = stemBottom
+            let baseHalf: CGFloat = 3.5
+            let basePath = NSBezierPath()
+            basePath.move(to: NSPoint(x: w / 2 - baseHalf, y: baseY))
+            basePath.line(to: NSPoint(x: w / 2 + baseHalf, y: baseY))
+            basePath.lineWidth = 1.6
+            basePath.lineCapStyle = .round
+            basePath.stroke()
+
+            return true
+        }
+        return image
+    }
+
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            if let iconPath = Bundle.main.path(forResource: "menubar-icon", ofType: "png"),
-               let icon = NSImage(contentsOfFile: iconPath) {
-                icon.isTemplate = true
-                icon.size = NSSize(width: 18, height: 18)
-                button.image = icon
-            } else {
-                button.title = "W"
-                button.font = NSFont.systemFont(ofSize: 14, weight: .bold)
-            }
+            let icon = makeMenuBarIcon()
+            icon.isTemplate = true
+            button.image = icon
         }
 
         let menu = NSMenu()

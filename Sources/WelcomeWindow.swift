@@ -1,8 +1,13 @@
 import Cocoa
+import ServiceManagement
 
 class WelcomeWindow: NSObject {
     private var window: NSWindow?
     var onComplete: (() -> Void)?
+
+    private static var apiFieldKey: UInt8 = 0
+    private static var errorLabelKey: UInt8 = 0
+    private static var loginCheckboxKey: UInt8 = 0
 
     func show() {
         if let existing = window, existing.isVisible {
@@ -11,8 +16,10 @@ class WelcomeWindow: NSObject {
             return
         }
 
+        let hasKey = Config.hasAPIKey
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 520),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -53,7 +60,7 @@ class WelcomeWindow: NSObject {
         y -= 28
 
         let apiField = NSSecureTextField()
-        apiField.placeholderString = "sk-..."
+        apiField.placeholderString = hasKey ? "API key configured — enter a new one to replace" : "sk-..."
         apiField.frame = NSRect(x: 40, y: y, width: 440, height: 28)
         apiField.autoresizingMask = [.width, .minYMargin]
         apiField.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -74,18 +81,19 @@ class WelcomeWindow: NSObject {
         linkButton.frame = NSRect(x: 36, y: y, width: 300, height: 18)
         linkButton.autoresizingMask = [.minYMargin]
         contentView.addSubview(linkButton)
-        y -= 36
+        y -= 8
 
         // Error label (hidden by default)
         let errorLabel = NSTextField(labelWithString: "")
         errorLabel.font = NSFont.systemFont(ofSize: 12)
         errorLabel.textColor = .systemRed
-        errorLabel.frame = NSRect(x: 40, y: y + 14, width: 440, height: 16)
+        errorLabel.frame = NSRect(x: 40, y: y, width: 440, height: 16)
         errorLabel.autoresizingMask = [.width, .minYMargin]
         errorLabel.isHidden = true
         contentView.addSubview(errorLabel)
+        y -= 24
 
-        // Setup instructions
+        // Divider
         let divider = NSBox()
         divider.boxType = .separator
         divider.frame = NSRect(x: 40, y: y, width: 440, height: 1)
@@ -93,6 +101,7 @@ class WelcomeWindow: NSObject {
         contentView.addSubview(divider)
         y -= 30
 
+        // Setup instructions
         let setupTitle = NSTextField(labelWithString: "Setup Instructions")
         setupTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         setupTitle.frame = NSRect(x: 40, y: y, width: 440, height: 18)
@@ -101,7 +110,7 @@ class WelcomeWindow: NSObject {
         y -= 28
 
         let steps = [
-            "1. System Settings \u{2192} Keyboard \u{2192} Set \"Press fn key to\" \u{2192} Do Nothing",
+            "1. System Settings \u{2192} Keyboard \u{2192} Set \"Press \u{1D5F3}\u{1D5FB} key to\" \u{2192} Do Nothing",
             "2. Grant Accessibility permission when prompted (for key monitoring)",
             "3. Grant Microphone permission when prompted (for speech recording)"
         ]
@@ -116,10 +125,20 @@ class WelcomeWindow: NSObject {
             y -= 34
         }
 
-        y -= 10
+        y -= 6
+
+        // Launch at Login checkbox
+        let loginCheckbox = NSButton(checkboxWithTitle: "Launch CustomWispr at login", target: nil, action: nil)
+        loginCheckbox.font = NSFont.systemFont(ofSize: 13)
+        loginCheckbox.frame = NSRect(x: 40, y: y, width: 440, height: 20)
+        loginCheckbox.autoresizingMask = [.width, .minYMargin]
+        loginCheckbox.state = .off
+        contentView.addSubview(loginCheckbox)
+        y -= 30
 
         // Get Started button
-        let startButton = NSButton(title: "Get Started", target: self, action: #selector(getStartedClicked))
+        let buttonTitle = hasKey ? "Get Started" : "Get Started"
+        let startButton = NSButton(title: buttonTitle, target: self, action: #selector(getStartedClicked))
         startButton.bezelStyle = .rounded
         startButton.keyEquivalent = "\r"
         startButton.controlSize = .large
@@ -136,10 +155,8 @@ class WelcomeWindow: NSObject {
         // Store references for action handlers
         objc_setAssociatedObject(self, &WelcomeWindow.apiFieldKey, apiField, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(self, &WelcomeWindow.errorLabelKey, errorLabel, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(self, &WelcomeWindow.loginCheckboxKey, loginCheckbox, .OBJC_ASSOCIATION_RETAIN)
     }
-
-    private static var apiFieldKey: UInt8 = 0
-    private static var errorLabelKey: UInt8 = 0
 
     private var apiField: NSSecureTextField? {
         objc_getAssociatedObject(self, &WelcomeWindow.apiFieldKey) as? NSSecureTextField
@@ -147,6 +164,10 @@ class WelcomeWindow: NSObject {
 
     private var errorLabel: NSTextField? {
         objc_getAssociatedObject(self, &WelcomeWindow.errorLabelKey) as? NSTextField
+    }
+
+    private var loginCheckbox: NSButton? {
+        objc_getAssociatedObject(self, &WelcomeWindow.loginCheckboxKey) as? NSButton
     }
 
     @objc private func openAPIKeyPage() {
@@ -160,19 +181,48 @@ class WelcomeWindow: NSObject {
 
         let key = apiField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if key.isEmpty {
+        // If no existing key and field is empty, require one
+        if !Config.hasAPIKey && key.isEmpty {
             errorLabel.stringValue = "Please enter your OpenAI API key."
             errorLabel.isHidden = false
             return
         }
 
-        if Config.saveAPIKey(key) {
-            log("API key saved from welcome window")
-            window?.close()
-            onComplete?()
-        } else {
-            errorLabel.stringValue = "Failed to save API key. Check file permissions."
-            errorLabel.isHidden = false
+        // Save new key if entered
+        if !key.isEmpty {
+            if Config.saveAPIKey(key) {
+                log("API key saved from welcome window")
+            } else {
+                errorLabel.stringValue = "Failed to save API key. Check file permissions."
+                errorLabel.isHidden = false
+                return
+            }
+        }
+
+        // Handle Launch at Login
+        if let checkbox = loginCheckbox {
+            let shouldLaunchAtLogin = checkbox.state == .on
+            setLaunchAtLogin(enabled: shouldLaunchAtLogin)
+        }
+
+        window?.close()
+        onComplete?()
+    }
+
+    private func setLaunchAtLogin(enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            do {
+                if enabled {
+                    try service.register()
+                    log("Launch at login enabled")
+                } else {
+                    try service.unregister()
+                    log("Launch at login disabled")
+                }
+            } catch {
+                log("Launch at login error: \(error.localizedDescription)")
+            }
         }
     }
 }

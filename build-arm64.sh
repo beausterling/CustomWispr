@@ -23,6 +23,7 @@ swiftc \
     -framework AVFoundation \
     -framework Carbon \
     -framework CoreGraphics \
+    -framework ServiceManagement \
     -swift-version 5 \
     "${SOURCES_DIR}/Config.swift" \
     "${SOURCES_DIR}/OverlayWindow.swift" \

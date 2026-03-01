@@ -1,4 +1,5 @@
 import Cocoa
+import ServiceManagement
 
 class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTabViewDelegate {
     private var window: NSWindow?
@@ -6,6 +7,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
     private var rows: [(find: String, replace: String)] = []
     private var apiKeyField: NSSecureTextField?
     private var apiKeyStatusLabel: NSTextField?
+    private var loginCheckbox: NSButton?
 
     func show() {
         if let existing = window, existing.isVisible {
@@ -98,6 +100,24 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
         saveButton.frame = NSRect(x: 20, y: y, width: 120, height: 32)
         saveButton.autoresizingMask = [.maxXMargin, .minYMargin]
         view.addSubview(saveButton)
+        y -= 50
+
+        // Launch at Login
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.frame = NSRect(x: 20, y: y + 14, width: width - 40, height: 1)
+        divider.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(divider)
+
+        let loginCheckbox = NSButton(checkboxWithTitle: "Launch CustomWispr at login", target: self, action: #selector(toggleLaunchAtLogin(_:)))
+        loginCheckbox.font = NSFont.systemFont(ofSize: 13)
+        loginCheckbox.frame = NSRect(x: 20, y: y - 10, width: width - 40, height: 20)
+        loginCheckbox.autoresizingMask = [.width, .minYMargin]
+        if #available(macOS 13.0, *) {
+            loginCheckbox.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        }
+        view.addSubview(loginCheckbox)
+        self.loginCheckbox = loginCheckbox
 
         return view
     }
@@ -112,6 +132,25 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTa
             keyField.stringValue = ""
             apiKeyStatusLabel?.stringValue = "Status: Configured"
             apiKeyStatusLabel?.textColor = .systemGreen
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSButton) {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            do {
+                if sender.state == .on {
+                    try service.register()
+                    log("Launch at login enabled")
+                } else {
+                    try service.unregister()
+                    log("Launch at login disabled")
+                }
+            } catch {
+                log("Launch at login error: \(error.localizedDescription)")
+                // Revert checkbox state on failure
+                sender.state = sender.state == .on ? .off : .on
+            }
         }
     }
 
