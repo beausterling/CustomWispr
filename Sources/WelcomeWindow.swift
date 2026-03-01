@@ -1,5 +1,6 @@
 import Cocoa
 import ServiceManagement
+import AVFoundation
 
 class WelcomeWindow: NSObject {
     private var window: NSWindow?
@@ -8,6 +9,13 @@ class WelcomeWindow: NSObject {
     private static var apiFieldKey: UInt8 = 0
     private static var errorLabelKey: UInt8 = 0
     private static var loginCheckboxKey: UInt8 = 0
+    private static var micStatusLabelKey: UInt8 = 0
+    private static var micButtonKey: UInt8 = 0
+    private static var accessStatusLabelKey: UInt8 = 0
+    private static var accessButtonKey: UInt8 = 0
+
+    private var accessibilityPollTimer: Timer?
+    private var microphonePollTimer: Timer?
 
     func show() {
         if let existing = window, existing.isVisible {
@@ -101,31 +109,75 @@ class WelcomeWindow: NSObject {
         contentView.addSubview(divider)
         y -= 30
 
-        // Setup instructions
-        let setupTitle = NSTextField(labelWithString: "Setup Instructions")
+        // Permission setup title
+        let setupTitle = NSTextField(labelWithString: "Permissions")
         setupTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         setupTitle.frame = NSRect(x: 40, y: y, width: 440, height: 18)
         setupTitle.autoresizingMask = [.width, .minYMargin]
         contentView.addSubview(setupTitle)
         y -= 28
 
-        let steps = [
-            "1. System Settings \u{2192} Keyboard \u{2192} Set \"Press \u{1D5F3}\u{1D5FB} key to\" \u{2192} Do Nothing",
-            "2. Grant Accessibility permission when prompted (for key monitoring)",
-            "3. Grant Microphone permission when prompted (for speech recording)"
-        ]
+        // Row 1: Fn key setting
+        let fnLabel = NSTextField(labelWithString: "Set fn key to \"Do Nothing\"")
+        fnLabel.font = NSFont.systemFont(ofSize: 12)
+        fnLabel.frame = NSRect(x: 56, y: y, width: 260, height: 20)
+        fnLabel.autoresizingMask = [.minYMargin]
+        contentView.addSubview(fnLabel)
 
-        for step in steps {
-            let stepLabel = NSTextField(wrappingLabelWithString: step)
-            stepLabel.font = NSFont.systemFont(ofSize: 12)
-            stepLabel.textColor = .secondaryLabelColor
-            stepLabel.frame = NSRect(x: 56, y: y, width: 420, height: 32)
-            stepLabel.autoresizingMask = [.width, .minYMargin]
-            contentView.addSubview(stepLabel)
-            y -= 34
-        }
+        let fnButton = NSButton(title: "Open Settings", target: self, action: #selector(openKeyboardSettings))
+        fnButton.bezelStyle = .rounded
+        fnButton.controlSize = .small
+        fnButton.font = NSFont.systemFont(ofSize: 11)
+        fnButton.frame = NSRect(x: 360, y: y - 2, width: 120, height: 24)
+        fnButton.autoresizingMask = [.minYMargin]
+        contentView.addSubview(fnButton)
+        y -= 30
 
-        y -= 6
+        // Row 2: Accessibility permission
+        let accessLabel = NSTextField(labelWithString: "Accessibility (key monitoring)")
+        accessLabel.font = NSFont.systemFont(ofSize: 12)
+        accessLabel.frame = NSRect(x: 56, y: y, width: 200, height: 20)
+        accessLabel.autoresizingMask = [.minYMargin]
+        contentView.addSubview(accessLabel)
+
+        let accessStatusLabel = NSTextField(labelWithString: "")
+        accessStatusLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        accessStatusLabel.alignment = .right
+        accessStatusLabel.frame = NSRect(x: 240, y: y, width: 110, height: 20)
+        accessStatusLabel.autoresizingMask = [.minYMargin]
+        contentView.addSubview(accessStatusLabel)
+
+        let accessButton = NSButton(title: "Grant Access", target: self, action: #selector(grantAccessibilityClicked))
+        accessButton.bezelStyle = .rounded
+        accessButton.controlSize = .small
+        accessButton.font = NSFont.systemFont(ofSize: 11)
+        accessButton.frame = NSRect(x: 360, y: y - 2, width: 120, height: 24)
+        accessButton.autoresizingMask = [.minYMargin]
+        contentView.addSubview(accessButton)
+        y -= 30
+
+        // Row 3: Microphone permission
+        let micLabel = NSTextField(labelWithString: "Microphone (speech recording)")
+        micLabel.font = NSFont.systemFont(ofSize: 12)
+        micLabel.frame = NSRect(x: 56, y: y, width: 200, height: 20)
+        micLabel.autoresizingMask = [.minYMargin]
+        contentView.addSubview(micLabel)
+
+        let micStatusLabel = NSTextField(labelWithString: "")
+        micStatusLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        micStatusLabel.alignment = .right
+        micStatusLabel.frame = NSRect(x: 240, y: y, width: 110, height: 20)
+        micStatusLabel.autoresizingMask = [.minYMargin]
+        contentView.addSubview(micStatusLabel)
+
+        let micButton = NSButton(title: "Grant Access", target: self, action: #selector(grantMicrophoneClicked))
+        micButton.bezelStyle = .rounded
+        micButton.controlSize = .small
+        micButton.font = NSFont.systemFont(ofSize: 11)
+        micButton.frame = NSRect(x: 360, y: y - 2, width: 120, height: 24)
+        micButton.autoresizingMask = [.minYMargin]
+        contentView.addSubview(micButton)
+        y -= 10
 
         // Launch at Login checkbox
         let loginCheckbox = NSButton(checkboxWithTitle: "Launch CustomWispr at login", target: nil, action: nil)
@@ -156,6 +208,12 @@ class WelcomeWindow: NSObject {
         objc_setAssociatedObject(self, &WelcomeWindow.apiFieldKey, apiField, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(self, &WelcomeWindow.errorLabelKey, errorLabel, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(self, &WelcomeWindow.loginCheckboxKey, loginCheckbox, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(self, &WelcomeWindow.micStatusLabelKey, micStatusLabel, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(self, &WelcomeWindow.micButtonKey, micButton, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(self, &WelcomeWindow.accessStatusLabelKey, accessStatusLabel, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(self, &WelcomeWindow.accessButtonKey, accessButton, .OBJC_ASSOCIATION_RETAIN)
+
+        updatePermissionStatuses()
     }
 
     private var apiField: NSSecureTextField? {
@@ -168,6 +226,121 @@ class WelcomeWindow: NSObject {
 
     private var loginCheckbox: NSButton? {
         objc_getAssociatedObject(self, &WelcomeWindow.loginCheckboxKey) as? NSButton
+    }
+
+    private var micStatusLabel: NSTextField? {
+        objc_getAssociatedObject(self, &WelcomeWindow.micStatusLabelKey) as? NSTextField
+    }
+
+    private var micButton: NSButton? {
+        objc_getAssociatedObject(self, &WelcomeWindow.micButtonKey) as? NSButton
+    }
+
+    private var accessStatusLabel: NSTextField? {
+        objc_getAssociatedObject(self, &WelcomeWindow.accessStatusLabelKey) as? NSTextField
+    }
+
+    private var accessButton: NSButton? {
+        objc_getAssociatedObject(self, &WelcomeWindow.accessButtonKey) as? NSButton
+    }
+
+    // MARK: - Permission Checks
+
+    private func isMicrophoneGranted() -> Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    private func isAccessibilityGranted() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func updatePermissionStatuses() {
+        if isAccessibilityGranted() {
+            accessStatusLabel?.stringValue = "\u{2713} Granted"
+            accessStatusLabel?.textColor = .systemGreen
+            accessButton?.title = "\u{2713} Granted"
+            accessButton?.isEnabled = false
+        } else {
+            accessStatusLabel?.stringValue = "Needed"
+            accessStatusLabel?.textColor = .systemOrange
+            accessButton?.title = "Grant Access"
+            accessButton?.isEnabled = true
+        }
+
+        if isMicrophoneGranted() {
+            micStatusLabel?.stringValue = "\u{2713} Granted"
+            micStatusLabel?.textColor = .systemGreen
+            micButton?.title = "\u{2713} Granted"
+            micButton?.isEnabled = false
+        } else {
+            micStatusLabel?.stringValue = "Needed"
+            micStatusLabel?.textColor = .systemOrange
+            micButton?.title = "Grant Access"
+            micButton?.isEnabled = true
+        }
+    }
+
+    // MARK: - Permission Actions
+
+    @objc private func openKeyboardSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func grantAccessibilityClicked() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        let alreadyTrusted = AXIsProcessTrustedWithOptions(options)
+        if alreadyTrusted {
+            updatePermissionStatuses()
+            return
+        }
+        // Poll every 1s until granted
+        accessibilityPollTimer?.invalidate()
+        accessibilityPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            if self.isAccessibilityGranted() {
+                timer.invalidate()
+                self.accessibilityPollTimer = nil
+                self.updatePermissionStatuses()
+                log("Accessibility permission granted via onboarding")
+            }
+        }
+    }
+
+    @objc private func grantMicrophoneClicked() {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                DispatchQueue.main.async {
+                    self?.updatePermissionStatuses()
+                    if granted {
+                        log("Microphone permission granted via onboarding")
+                    }
+                }
+            }
+        case .denied, .restricted:
+            // Already denied — open System Settings and poll
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                NSWorkspace.shared.open(url)
+            }
+            microphonePollTimer?.invalidate()
+            microphonePollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+                guard let self = self else { timer.invalidate(); return }
+                if self.isMicrophoneGranted() {
+                    timer.invalidate()
+                    self.microphonePollTimer = nil
+                    self.updatePermissionStatuses()
+                    log("Microphone permission granted via onboarding (settings)")
+                }
+            }
+        case .authorized:
+            updatePermissionStatuses()
+        @unknown default:
+            break
+        }
     }
 
     @objc private func openAPIKeyPage() {
@@ -195,6 +368,27 @@ class WelcomeWindow: NSObject {
             } else {
                 errorLabel.stringValue = "Failed to save API key. Check file permissions."
                 errorLabel.isHidden = false
+                return
+            }
+        }
+
+        // Invalidate any running poll timers
+        accessibilityPollTimer?.invalidate()
+        accessibilityPollTimer = nil
+        microphonePollTimer?.invalidate()
+        microphonePollTimer = nil
+
+        // Warn if permissions are missing
+        let missingPerms = !isAccessibilityGranted() || !isMicrophoneGranted()
+        if missingPerms {
+            let alert = NSAlert()
+            alert.messageText = "Permissions Not Granted"
+            alert.informativeText = "Some permissions are still needed for CustomWispr to work properly. Continue anyway?"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Continue Anyway")
+            alert.addButton(withTitle: "Go Back")
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn {
                 return
             }
         }

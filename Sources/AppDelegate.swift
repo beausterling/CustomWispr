@@ -141,23 +141,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Permissions
 
     private func requestPermissions() {
-        // Request microphone permission
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .notDetermined:
-            log("Requesting microphone permission...")
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                log("Microphone permission \(granted ? "granted" : "denied")")
-            }
-        case .denied, .restricted:
-            log("ERROR: Microphone permission denied. Grant in System Settings > Privacy & Security > Microphone")
-        case .authorized:
-            log("Microphone permission already granted")
-        @unknown default:
-            break
-        }
+        // Log-only — permissions are now handled during onboarding in WelcomeWindow
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        log("Microphone status: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
 
-        // Check accessibility (needed for CGEventTap)
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
         log("Accessibility trusted: \(trusted)")
     }
