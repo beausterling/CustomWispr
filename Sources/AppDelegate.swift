@@ -53,6 +53,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func finishStartup() {
         requestPermissions()
         startKeyMonitor()
+
+        // Check for updates after a short delay so the app feels snappy
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            UpdateChecker.checkForUpdates()
+        }
     }
 
     // MARK: - Menu Bar

@@ -20,6 +20,7 @@ SWIFT_SOURCES=(
     "${SOURCES_DIR}/SettingsManager.swift"
     "${SOURCES_DIR}/SettingsWindow.swift"
     "${SOURCES_DIR}/WelcomeWindow.swift"
+    "${SOURCES_DIR}/UpdateChecker.swift"
     "${SOURCES_DIR}/AppDelegate.swift"
     "${SOURCES_DIR}/main.swift"
 )
