@@ -49,8 +49,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.title = "W"
-            button.font = NSFont.systemFont(ofSize: 14, weight: .bold)
+            if let iconPath = Bundle.main.path(forResource: "menubar-icon", ofType: "png"),
+               let icon = NSImage(contentsOfFile: iconPath) {
+                icon.isTemplate = true
+                icon.size = NSSize(width: 18, height: 18)
+                button.image = icon
+            } else {
+                button.title = "W"
+                button.font = NSFont.systemFont(ofSize: 14, weight: .bold)
+            }
         }
 
         let menu = NSMenu()
