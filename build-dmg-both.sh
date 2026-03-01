@@ -34,6 +34,22 @@ SWIFT_FLAGS=(
     -swift-version 5
 )
 
+# ── Signing identity ──
+SIGNING_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+if [ -n "$SIGNING_IDENTITY" ]; then
+    echo "==> Found signing identity: ${SIGNING_IDENTITY}"
+    NOTARIZE_PROFILE="customwispr"
+    # Check if notarization keychain profile exists
+    if ! xcrun notarytool history --keychain-profile "$NOTARIZE_PROFILE" 2>/dev/null | head -1 >/dev/null 2>&1; then
+        echo "    WARNING: Keychain profile '${NOTARIZE_PROFILE}' may not exist."
+        echo "    Notarization will be attempted but may fail."
+    fi
+else
+    echo "==> WARNING: No Developer ID Application certificate found."
+    echo "    Falling back to ad-hoc signing (app will trigger Gatekeeper warnings)."
+    echo "    To fix: Install a Developer ID Application certificate via Xcode."
+fi
+
 # Build a single-arch DMG
 # Usage: build_dmg <arch> <target> <dmg_name>
 build_dmg() {
@@ -69,10 +85,18 @@ build_dmg() {
     cp "${RESOURCES_DIR}/menubar-icon@2x.png" "${APP_BUNDLE}/Contents/Resources/"
 
     # Code sign
-    echo "==> Code signing..."
-    codesign --force --sign - \
-        --entitlements "${RESOURCES_DIR}/entitlements.plist" \
-        "${APP_BUNDLE}"
+    if [ -n "$SIGNING_IDENTITY" ]; then
+        echo "==> Code signing with Developer ID..."
+        codesign --force --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --entitlements "${RESOURCES_DIR}/entitlements.plist" \
+            "${APP_BUNDLE}"
+    else
+        echo "==> Code signing (ad-hoc)..."
+        codesign --force --sign - \
+            --entitlements "${RESOURCES_DIR}/entitlements.plist" \
+            "${APP_BUNDLE}"
+    fi
 
     # Create DMG (read-write first, so we can style it)
     echo "==> Creating DMG..."
@@ -130,6 +154,16 @@ APPLESCRIPT
     mv "${DMG_NAME}" "${DMG_NAME}.rw"
     hdiutil convert "${DMG_NAME}.rw" -format UDZO -o "${DMG_NAME}"
     rm -f "${DMG_NAME}.rw"
+
+    # Notarize
+    if [ -n "$SIGNING_IDENTITY" ]; then
+        echo "==> Notarizing ${DMG_NAME}..."
+        xcrun notarytool submit "${DMG_NAME}" \
+            --keychain-profile "${NOTARIZE_PROFILE}" \
+            --wait
+        echo "==> Stapling notarization ticket..."
+        xcrun stapler staple "${DMG_NAME}"
+    fi
 
     rm -rf "${DMG_TEMP}" "${APP_BUNDLE}"
 }
