@@ -41,13 +41,12 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "Settings"
         window.center()
-        window.minSize = NSSize(width: 460, height: 360)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = bgColor
@@ -59,6 +58,9 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = bgColor.cgColor
 
+        // Reset to first tab before building UI
+        currentTab = 0
+
         // Build custom tab bar
         buildTabBar(in: contentView)
 
@@ -69,7 +71,6 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         self.contentContainer = container
 
         window.contentView = contentView
-        currentTab = 0
         showTab(currentTab)
 
         window.makeKeyAndOrderFront(nil)
@@ -375,7 +376,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         tableView.allowsMultipleSelection = false
         tableView.rowHeight = 24
         tableView.gridColor = borderColor
-        tableView.gridStyleMask = .solidHorizontalGridLineMask
+        tableView.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
 
         let findColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("find"))
         findColumn.title = "Find"
@@ -554,7 +555,27 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
 
     // MARK: - Find & Replace Actions
 
+    /// End any active cell editing and read ALL visible cell values back into `rows`.
+    /// Must be called before any operation that reads or mutates `rows`.
+    private func syncRowsFromTable() {
+        guard let tableView = tableView else { return }
+        // End field editor — commits typed text back into the NSTextField's stringValue
+        window?.makeFirstResponder(nil)
+        // Read every visible cell back into the rows array
+        for row in 0..<rows.count {
+            if let findCell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView,
+               let findField = findCell.textField {
+                rows[row].find = findField.stringValue
+            }
+            if let replaceCell = tableView.view(atColumn: 1, row: row, makeIfNecessary: false) as? NSTableCellView,
+               let replaceField = replaceCell.textField {
+                rows[row].replace = replaceField.stringValue
+            }
+        }
+    }
+
     @objc private func addRow() {
+        syncRowsFromTable()
         rows.append((find: "", replace: ""))
         tableView?.reloadData()
         let newRow = rows.count - 1
@@ -564,6 +585,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
 
     @objc private func removeRow() {
         guard let tableView = tableView else { return }
+        syncRowsFromTable()
         let selected = tableView.selectedRow
         guard selected >= 0 else { return }
         rows.remove(at: selected)
@@ -571,29 +593,11 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
     }
 
     @objc private func saveClicked() {
-        window?.makeFirstResponder(nil) // End any active cell editing
-        commitEditing()
+        syncRowsFromTable()
         let filtered = rows.filter { !$0.find.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         SettingsManager.shared.replacements = filtered.map { Replacement(find: $0.find, replace: $0.replace) }
         log("Settings saved (\(filtered.count) replacement\(filtered.count == 1 ? "" : "s"))")
         window?.close()
-    }
-
-    private func commitEditing() {
-        guard let tableView = tableView else { return }
-        let editedRow = tableView.editedRow
-        let editedCol = tableView.editedColumn
-        if editedRow >= 0, editedCol >= 0,
-           let cellView = tableView.view(atColumn: editedCol, row: editedRow, makeIfNecessary: false) as? NSTableCellView,
-           let textField = cellView.textField {
-            let value = textField.stringValue
-            let colID = tableView.tableColumns[editedCol].identifier.rawValue
-            if colID == "find" {
-                rows[editedRow].find = value
-            } else {
-                rows[editedRow].replace = value
-            }
-        }
     }
 
     // MARK: - NSTableViewDataSource

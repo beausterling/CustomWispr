@@ -18,14 +18,15 @@ class AICleanupService {
     """
 
     func cleanup(rawText: String) async -> String {
-        let cleaned: String
+        // Apply find/replace BEFORE GPT so Whisper misspellings (e.g. names) are
+        // corrected before GPT tries to interpret them
+        let replaced = SettingsManager.shared.applyReplacements(rawText)
         do {
-            cleaned = try await callGPT(rawText: rawText)
+            return try await callGPT(rawText: replaced)
         } catch {
-            log("GPT cleanup failed: \(error.localizedDescription). Using raw text.")
-            cleaned = rawText
+            log("GPT cleanup failed: \(error.localizedDescription). Using replaced text.")
+            return replaced
         }
-        return SettingsManager.shared.applyReplacements(cleaned)
     }
 
     private func callGPT(rawText: String) async throws -> String {
