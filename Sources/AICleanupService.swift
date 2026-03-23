@@ -66,6 +66,14 @@ class AICleanupService {
         }
     }
 
+    /// URLSession with a hard cap on total request time
+    private lazy var session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15   // max idle time between packets
+        config.timeoutIntervalForResource = 45  // max total time for entire request
+        return URLSession(configuration: config)
+    }()
+
     private func callGPT(rawText: String) async throws -> String {
         guard let url = URL(string: "\(Config.openAIBaseURL)/chat/completions") else {
             throw CleanupError.invalidURL
@@ -73,7 +81,6 @@ class AICleanupService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30
         request.setValue("Bearer \(Config.apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -89,7 +96,7 @@ class AICleanupService {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8).map { String($0.prefix(200)) } ?? "Unknown error"

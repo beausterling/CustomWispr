@@ -1,14 +1,47 @@
 import Foundation
 
 class WhisperService {
+    /// URLSession with a hard cap on total request time (upload + server processing + download)
+    private lazy var session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30   // max idle time between packets
+        config.timeoutIntervalForResource = 120 // max total time for entire request
+        return URLSession(configuration: config)
+    }()
+
     func transcribe(audioFileURL: URL) async throws -> String {
+        // Retry once on transient failure
+        do {
+            return try await attemptTranscribe(audioFileURL: audioFileURL)
+        } catch {
+            if isTransient(error) {
+                log("Whisper request failed (\(error.localizedDescription)), retrying once...")
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s backoff
+                return try await attemptTranscribe(audioFileURL: audioFileURL)
+            }
+            throw error
+        }
+    }
+
+    private func isTransient(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return [.timedOut, .networkConnectionLost, .notConnectedToInternet,
+                    .cannotConnectToHost, .cannotFindHost].contains(urlError.code)
+        }
+        if let whisperError = error as? WhisperError,
+           case .apiError(let code, _) = whisperError, code >= 500 {
+            return true // server errors are retryable
+        }
+        return false
+    }
+
+    private func attemptTranscribe(audioFileURL: URL) async throws -> String {
         guard let url = URL(string: "\(Config.openAIBaseURL)/audio/transcriptions") else {
             throw WhisperError.invalidURL
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
         request.setValue("Bearer \(Config.apiKey)", forHTTPHeaderField: "Authorization")
 
         let boundary = UUID().uuidString
@@ -34,7 +67,7 @@ class WhisperService {
 
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw WhisperError.invalidResponse

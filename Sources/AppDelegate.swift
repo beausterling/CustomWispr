@@ -20,8 +20,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var isRecording = false
     private var isProcessing = false
+    private var processingTask: Task<Void, Never>?
     private var maxRecordingTimer: Timer?
     private let maxRecordingDuration: TimeInterval = 300 // 5 minutes
+    private let maxProcessingDuration: UInt64 = 150_000_000_000 // 150 seconds in nanoseconds
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("App launched")
@@ -181,8 +183,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             log("Ignoring fn down (no API key configured)")
             return
         }
-        guard !isRecording && !isProcessing else {
-            log("Ignoring fn down (recording=\(isRecording), processing=\(isProcessing))")
+
+        // If processing is stuck, cancel it so user can start fresh
+        if isProcessing {
+            log("Cancelling stuck processing task")
+            processingTask?.cancel()
+            processingTask = nil
+            isProcessing = false
+            overlay.hide()
+            recorder.cleanup()
+        }
+
+        guard !isRecording else {
+            log("Ignoring fn down (already recording)")
             return
         }
         isRecording = true
@@ -216,44 +229,72 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        overlay.show(status: "Processing...")
+        overlay.show(status: "Transcribing...")
         log("Recording stopped, processing...")
 
-        Task {
+        processingTask = Task {
             defer {
                 DispatchQueue.main.async { [weak self] in
                     self?.isProcessing = false
+                    self?.processingTask = nil
                     self?.overlay.hide()
                     self?.recorder.cleanup()
                 }
             }
 
             do {
-                // Step 1: Transcribe
-                let rawText = try await whisper.transcribe(audioFileURL: audioURL)
-                #if DEBUG
-                log("Transcribed: \(rawText.prefix(100))...")
-                #endif
+                // Overall timeout: race the pipeline against a deadline
+                try await withThrowingTaskGroup(of: String.self) { group in
+                    group.addTask { [self] in
+                        // Step 1: Transcribe
+                        let rawText = try await whisper.transcribe(audioFileURL: audioURL)
+                        #if DEBUG
+                        log("Transcribed: \(rawText.prefix(100))...")
+                        #endif
 
-                guard !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    log("Empty transcription, skipping")
-                    return
+                        guard !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            log("Empty transcription, skipping")
+                            return ""
+                        }
+
+                        // Step 2: Clean up with AI
+                        await MainActor.run { overlay.show(status: "Cleaning up...") }
+                        let cleanedText = await cleanup.cleanup(rawText: rawText)
+                        #if DEBUG
+                        log("Cleaned: \(cleanedText.prefix(100))...")
+                        #endif
+
+                        return cleanedText
+                    }
+
+                    // Timeout task
+                    group.addTask { [self] in
+                        try await Task.sleep(nanoseconds: maxProcessingDuration)
+                        throw ProcessingError.timeout
+                    }
+
+                    // Take whichever finishes first
+                    if let result = try await group.next() {
+                        group.cancelAll()
+                        if !result.isEmpty {
+                            await MainActor.run { [self] in
+                                injector.inject(text: result)
+                                log("Text injected successfully")
+                            }
+                        }
+                    }
                 }
-
-                // Step 2: Clean up with AI
-                let cleanedText = await cleanup.cleanup(rawText: rawText)
-                #if DEBUG
-                log("Cleaned: \(cleanedText.prefix(100))...")
-                #endif
-
-                // Step 3: Inject into active text field
-                DispatchQueue.main.async { [weak self] in
-                    self?.injector.inject(text: cleanedText)
-                    log("Text injected successfully")
-                }
+            } catch is CancellationError {
+                log("Processing was cancelled by user")
+            } catch ProcessingError.timeout {
+                log("ERROR: Processing timed out after \(maxProcessingDuration / 1_000_000_000)s")
             } catch {
                 log("ERROR: Processing failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    private enum ProcessingError: Error {
+        case timeout
     }
 }
