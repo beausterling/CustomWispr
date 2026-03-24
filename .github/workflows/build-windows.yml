@@ -1,0 +1,33 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ['windows/**']
+  pull_request:
+    paths: ['windows/**']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+
+      - name: Restore packages
+        run: dotnet restore windows/CustomWispr/CustomWispr.csproj
+
+      - name: Build
+        run: dotnet build windows/CustomWispr/CustomWispr.csproj -c Release --no-restore
+
+      - name: Publish single-file EXE
+        run: dotnet publish windows/CustomWispr/CustomWispr.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CustomWispr-Windows
+          path: publish/CustomWispr.exe

@@ -15,3 +15,9 @@ xcuserdata/
 .swiftpm/
 *.dmg
 dmg-temp/
+
+# Windows build artifacts
+windows/CustomWispr/bin/
+windows/CustomWispr/obj/
+windows/publish/
+*.exe
