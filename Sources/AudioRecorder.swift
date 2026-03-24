@@ -4,6 +4,7 @@ import Foundation
 class AudioRecorder {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
+    private var converter: AVAudioConverter?
     private var tempFileURL: URL?
 
     func startRecording() throws -> URL {
@@ -21,18 +22,50 @@ class AudioRecorder {
             throw RecorderError.noMicrophone
         }
 
+        // Downsample to 16kHz mono — Whisper internally uses 16kHz anyway,
+        // and smaller files upload significantly faster
+        let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16000,
+            channels: 1,
+            interleaved: false
+        )!
+
+        let conv = AVAudioConverter(from: recordingFormat, to: targetFormat)!
+        self.converter = conv
+
         let audioFile = try AVAudioFile(
             forWriting: fileURL,
             settings: [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: recordingFormat.sampleRate,
-                AVNumberOfChannelsKey: recordingFormat.channelCount,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+                AVSampleRateKey: 16000.0,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+                AVEncoderBitRateKey: 32000
             ]
         )
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            try? audioFile.write(from: buffer)
+        let sampleRateRatio = 16000.0 / recordingFormat.sampleRate
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
+            let outputCapacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * sampleRateRatio))
+            guard let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputCapacity) else { return }
+
+            var provided = false
+            var error: NSError?
+            conv.convert(to: converted, error: &error) { _, outStatus in
+                if provided {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                provided = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+
+            if error == nil && converted.frameLength > 0 {
+                try? audioFile.write(from: converted)
+            }
         }
 
         engine.prepare()
@@ -49,6 +82,7 @@ class AudioRecorder {
         audioEngine?.stop()
         audioEngine = nil
         audioFile = nil
+        converter = nil
         return tempFileURL
     }
 

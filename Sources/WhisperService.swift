@@ -55,6 +55,11 @@ class WhisperService {
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(Config.whisperModel)\r\n".data(using: .utf8)!)
 
+        // language hint — skips auto-detection for faster processing
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+        body.append("en\r\n".data(using: .utf8)!)
+
         // audio file
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)

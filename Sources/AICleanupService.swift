@@ -51,6 +51,13 @@ class AICleanupService {
         // Apply find/replace BEFORE GPT so Whisper misspellings (e.g. names) are
         // corrected before GPT tries to interpret them
         let replaced = SettingsManager.shared.applyReplacements(rawText)
+
+        // Skip GPT for very short text — not worth the extra API round trip
+        guard replaced.count >= 30 else {
+            log("Short transcription (\(replaced.count) chars), skipping GPT cleanup")
+            return replaced
+        }
+
         do {
             let cleaned = try await callGPT(rawText: replaced)
             // If GPT refused to process the text (content policy triggered),

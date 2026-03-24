@@ -200,9 +200,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         isRecording = true
 
+        overlay.show(status: "Listening...")
+
         do {
             _ = try recorder.startRecording()
-            overlay.show(status: "Listening...")
             log("Recording started")
 
             maxRecordingTimer = Timer.scheduledTimer(withTimeInterval: maxRecordingDuration, repeats: false) { [weak self] _ in
@@ -212,6 +213,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             log("ERROR: Failed to start recording: \(error.localizedDescription)")
             isRecording = false
+            overlay.hide()
         }
     }
 

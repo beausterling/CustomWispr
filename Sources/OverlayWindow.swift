@@ -1,22 +1,29 @@
 import Cocoa
+import QuartzCore
 
 class OverlayWindow {
     private var panel: NSPanel?
     private var label: NSTextField?
 
     func show(status: String) {
-        DispatchQueue.main.async { [self] in
+        let work = { [self] in
             if panel == nil {
                 createPanel()
             }
             label?.stringValue = status
             panel?.orderFrontRegardless()
+            CATransaction.flush()  // render immediately, don't wait for next run loop
         }
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
     func hide() {
-        DispatchQueue.main.async { [self] in
+        if Thread.isMainThread {
             panel?.orderOut(nil)
+        } else {
+            DispatchQueue.main.async { [self] in
+                panel?.orderOut(nil)
+            }
         }
     }
 
