@@ -1,13 +1,20 @@
 import Cocoa
+import CoreAudio
 import ServiceManagement
 
-class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var tableView: NSTableView?
     private var rows: [(find: String, replace: String)] = []
     private var apiKeyField: NSTextField?
     private var apiKeyStatusLabel: NSTextField?
     private var loginCheckbox: NSButton?
+
+    // Microphone picker
+    private var micPopup: NSPopUpButton?
+    private var micEntries: [(label: String, uid: String)] = []
+    private var micStatusLabel: NSTextField?
+    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
 
     // API key masking
     private var apiKeyValue = ""
@@ -47,6 +54,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         )
         window.title = "Settings"
         window.center()
+        window.delegate = self
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = bgColor
@@ -94,7 +102,7 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         separator.autoresizingMask = [.width]
         tabBar.addSubview(separator)
 
-        let tabTitles = ["API Key", "Find & Replace", "Customize"]
+        let tabTitles = ["API Key", "Find & Replace", "Microphone", "Customize"]
         let tabWidth = width / CGFloat(tabTitles.count)
 
         tabButtons = []
@@ -154,7 +162,8 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         switch index {
         case 0: container.addSubview(buildAPIKeyTab(width: width, height: height))
         case 1: container.addSubview(buildFindReplaceTab(width: width, height: height))
-        case 2: container.addSubview(buildCustomizeTab(width: width, height: height))
+        case 2: container.addSubview(buildMicrophoneTab(width: width, height: height))
+        case 3: container.addSubview(buildCustomizeTab(width: width, height: height))
         default: break
         }
     }
@@ -421,7 +430,156 @@ class SettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTe
         return view
     }
 
-    // MARK: - Tab 3: Customize
+    // MARK: - Tab 3: Microphone
+
+    private func buildMicrophoneTab(width: CGFloat, height: CGFloat) -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        var y = height - 30
+
+        let titleLabel = makeLabel("Microphone", size: 18, weight: .bold, color: textColor)
+        titleLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 24)
+        titleLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(titleLabel)
+        y -= 26
+
+        let subtitleLabel = NSTextField(wrappingLabelWithString: "Choose which microphone CustomWispr records from. This is used for every recording and ignores the macOS default input — so connecting headphones won't break dictation.")
+        subtitleLabel.font = NSFont.systemFont(ofSize: 12)
+        subtitleLabel.textColor = mutedColor
+        subtitleLabel.backgroundColor = .clear
+        subtitleLabel.isBordered = false
+        subtitleLabel.isEditable = false
+        subtitleLabel.frame = NSRect(x: 20, y: y - 30, width: width - 40, height: 44)
+        subtitleLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(subtitleLabel)
+        y -= 64
+
+        let fieldLabel = makeLabel("Input device", size: 13, weight: .regular, color: mutedColor)
+        fieldLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 18)
+        fieldLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(fieldLabel)
+        y -= 38
+
+        let popup = NSPopUpButton(frame: NSRect(x: 20, y: y, width: width - 40, height: 32), pullsDown: false)
+        popup.autoresizingMask = [.width, .minYMargin]
+        popup.target = self
+        popup.action = #selector(micSelectionChanged(_:))
+        popup.appearance = NSAppearance(named: .darkAqua)
+        view.addSubview(popup)
+        self.micPopup = popup
+        y -= 40
+
+        let statusLabel = makeLabel("", size: 12, weight: .medium, color: greenColor)
+        statusLabel.frame = NSRect(x: 20, y: y, width: width - 40, height: 18)
+        statusLabel.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(statusLabel)
+        self.micStatusLabel = statusLabel
+
+        refreshMicList()
+        registerDeviceListener()
+
+        return view
+    }
+
+    /// Rebuild the popup from currently-connected input devices, preserving the
+    /// user's saved selection. Called on tab open and whenever devices change.
+    private func refreshMicList() {
+        guard let popup = micPopup else { return }
+
+        let devices = AudioRecorder.availableInputDevices()
+        let savedUID = SettingsManager.shared.selectedMicUID
+
+        // First entry is the safe default; the rest are live devices.
+        micEntries = [("Built-in Microphone (recommended)", "")]
+        for device in devices {
+            micEntries.append((device.name, device.uid))
+        }
+
+        popup.removeAllItems()
+        for entry in micEntries {
+            popup.addItem(withTitle: entry.label)
+        }
+
+        // Select the saved device if present, else fall back to the default entry.
+        var selectedIndex = 0
+        if !savedUID.isEmpty,
+           let idx = micEntries.firstIndex(where: { $0.uid == savedUID }) {
+            selectedIndex = idx
+        }
+        popup.selectItem(at: selectedIndex)
+        updateMicStatus(selectedIndex: selectedIndex, savedUID: savedUID)
+    }
+
+    private func updateMicStatus(selectedIndex: Int, savedUID: String) {
+        guard let label = micStatusLabel else { return }
+        if !savedUID.isEmpty && !micEntries.contains(where: { $0.uid == savedUID }) {
+            // Saved device isn't currently connected → recording falls back to built-in.
+            label.stringValue = "Saved mic not connected — using built-in mic until it returns."
+            label.textColor = accentColor
+        } else if selectedIndex == 0 {
+            label.stringValue = "Using the built-in microphone."
+            label.textColor = greenColor
+        } else {
+            label.stringValue = "Active. CustomWispr will always record from this device."
+            label.textColor = greenColor
+        }
+    }
+
+    @objc private func micSelectionChanged(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        guard index >= 0, index < micEntries.count else { return }
+        let entry = micEntries[index]
+        SettingsManager.shared.selectedMicUID = entry.uid
+        log("Microphone set to: \(entry.label) (uid: \(entry.uid.isEmpty ? "built-in default" : entry.uid))")
+        updateMicStatus(selectedIndex: index, savedUID: entry.uid)
+    }
+
+    // MARK: - Live device updates
+
+    private func registerDeviceListener() {
+        guard deviceListenerBlock == nil else { return }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async {
+                // Only refresh while the Microphone tab is actually showing.
+                guard let self = self, self.micPopup?.window != nil else { return }
+                self.refreshMicList()
+            }
+        }
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main, block
+        )
+        if status == noErr {
+            deviceListenerBlock = block
+        } else {
+            log("WARNING: Could not register audio device listener (OSStatus \(status))")
+        }
+    }
+
+    private func removeDeviceListener() {
+        guard let block = deviceListenerBlock else { return }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main, block
+        )
+        deviceListenerBlock = nil
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        removeDeviceListener()
+        micPopup = nil
+        micStatusLabel = nil
+    }
+
+    // MARK: - Tab 4: Customize
 
     private func buildCustomizeTab(width: CGFloat, height: CGFloat) -> NSView {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))

@@ -10,11 +10,21 @@ class SettingsManager {
 
     private let settingsPath: String
     private var _replacements: [Replacement] = []
+    private var _selectedMicUID: String = ""
 
     var replacements: [Replacement] {
         get { _replacements }
         set {
             _replacements = newValue
+            save()
+        }
+    }
+
+    /// Stable UID of the user's chosen input device. Empty = use the built-in mic.
+    var selectedMicUID: String {
+        get { _selectedMicUID }
+        set {
+            _selectedMicUID = newValue
             save()
         }
     }
@@ -36,19 +46,26 @@ class SettingsManager {
     private func load() {
         guard FileManager.default.fileExists(atPath: settingsPath),
               let data = FileManager.default.contents(atPath: settingsPath),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let arr = json["replacements"] as? [[String: String]] else {
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
-        _replacements = arr.compactMap { dict in
-            guard let find = dict["find"], let replace = dict["replace"] else { return nil }
-            return Replacement(find: find, replace: replace)
+        if let arr = json["replacements"] as? [[String: String]] {
+            _replacements = arr.compactMap { dict in
+                guard let find = dict["find"], let replace = dict["replace"] else { return nil }
+                return Replacement(find: find, replace: replace)
+            }
+        }
+        if let uid = json["selectedMicUID"] as? String {
+            _selectedMicUID = uid
         }
     }
 
     private func save() {
         let arr = _replacements.map { ["find": $0.find, "replace": $0.replace] }
-        let json: [String: Any] = ["replacements": arr]
+        let json: [String: Any] = [
+            "replacements": arr,
+            "selectedMicUID": _selectedMicUID
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) else {
             log("ERROR: Failed to serialize settings")
             return
