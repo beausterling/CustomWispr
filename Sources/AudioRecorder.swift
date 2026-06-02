@@ -8,40 +8,48 @@ class AudioRecorder {
     private var tempFileURL: URL?
     private var framesWritten: AVAudioFramePosition = 0
 
+    /// The system default input device that was active before we overrode it for
+    /// this recording, so stopRecording() can put it back. nil = nothing to restore.
+    private var deviceToRestore: AudioDeviceID?
+
     func startRecording() throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
         let fileURL = tempDir.appendingPathComponent("custom-wispr_\(UUID().uuidString).m4a")
         self.tempFileURL = fileURL
         self.framesWritten = 0
 
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-
-        // Pin recording to the user's chosen input device (Settings > Microphone),
-        // ignoring the macOS system default. Bluetooth headsets (AirPods, etc.)
-        // auto-grab the default input when they connect but often deliver
-        // empty/garbled audio to AVAudioEngine, which silently produced empty
-        // files. Pinning to an explicit device makes dictation reliable no matter
-        // what headphones connect. Falls back to the built-in mic.
-        if let deviceID = AudioRecorder.preferredInputDeviceID(),
-           let audioUnit = inputNode.audioUnit {
-            var dev = deviceID
-            let err = AudioUnitSetProperty(
-                audioUnit,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &dev,
-                UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-            if err == noErr {
-                log("Pinned recording to input device \(deviceID) (\(AudioRecorder.deviceName(deviceID) ?? "unknown"))")
+        // Force recording onto the user's chosen input device (Settings > Microphone),
+        // ignoring whatever the macOS default happens to be. Bluetooth headsets
+        // (AirPods, etc.) auto-grab the default input when they connect but often
+        // deliver empty/garbled audio, which silently produced empty files.
+        //
+        // We do this by temporarily switching the *system default input device*
+        // rather than poking AVAudioEngine's input audio unit directly:
+        // AudioUnitSetProperty(kAudioOutputUnitProperty_CurrentDevice) returns
+        // noErr but leaves the engine capturing ZERO frames on real hardware
+        // (verified), so that approach silently broke dictation. Switching the
+        // default — which AVAudioEngine reliably follows — actually works. The
+        // previous default is restored in stopRecording() so calls/other apps
+        // aren't left on the wrong mic. Falls back to the built-in mic.
+        deviceToRestore = nil
+        if let deviceID = AudioRecorder.preferredInputDeviceID() {
+            let current = AudioRecorder.defaultInputDeviceID()
+            if current != deviceID {
+                if AudioRecorder.setDefaultInputDevice(deviceID) {
+                    deviceToRestore = current
+                    log("Recording on input device \(deviceID) (\(AudioRecorder.deviceName(deviceID) ?? "unknown")); will restore default afterward")
+                } else {
+                    log("WARNING: Could not switch to selected mic; using system default input")
+                }
             } else {
-                log("WARNING: Could not pin to selected mic (OSStatus \(err)); using system default input")
+                log("Recording on input device \(deviceID) (\(AudioRecorder.deviceName(deviceID) ?? "unknown")); already the default")
             }
         } else {
             log("WARNING: No usable input device found; using system default input")
         }
+
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
 
         // Use outputFormat (not inputFormat) to avoid crashes on some hardware.
         // This is the device's *actual* delivered format — record it as-is.
@@ -90,6 +98,14 @@ class AudioRecorder {
         audioEngine?.stop()
         audioEngine = nil
         audioFile = nil  // finalizes/closes the AAC file
+
+        // Put the user's previous default input device back.
+        if let restore = deviceToRestore {
+            _ = AudioRecorder.setDefaultInputDevice(restore)
+            log("Restored system default input device to \(restore)")
+            deviceToRestore = nil
+        }
+
         log("Recording stopped: \(framesWritten) frames captured")
         if framesWritten == 0 {
             log("WARNING: No audio frames were captured — check the default input device.")
@@ -105,6 +121,36 @@ class AudioRecorder {
     }
 
     // MARK: - Device selection
+
+    /// The current system default input device, or nil if it can't be read.
+    static func defaultInputDeviceID() -> AudioDeviceID? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dev: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &dev
+        ) == noErr, dev != 0 else { return nil }
+        return dev
+    }
+
+    /// Make `device` the system default input. Returns true on success.
+    @discardableResult
+    static func setDefaultInputDevice(_ device: AudioDeviceID) -> Bool {
+        var dev = device
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        return AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &dev
+        ) == noErr
+    }
 
     /// Find the AudioDeviceID of the Mac's built-in microphone (transport type
     /// "built-in" with at least one input channel). Returns nil if none exists.
